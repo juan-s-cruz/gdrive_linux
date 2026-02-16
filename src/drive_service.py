@@ -1,6 +1,6 @@
 from googleapiclient.discovery import build
 
-from .auth import authenticate
+from auth import authenticate
 
 
 class DriveService:
