@@ -1,0 +1,1 @@
+This repository contains a Google Drive client for linux that allows you to sync files between your local system and Google Drive.
