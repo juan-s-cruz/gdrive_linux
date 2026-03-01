@@ -1,12 +1,14 @@
 import logging
 import os
-from typing import Optional
+import mimetypes
+from threading import Timer
+from typing import Optional, Dict
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from watchdog.observers import Observer
 
-from src.config_manager import ConfigManager
-from src.state_manager import StateManager
-from src.drive_ops import DriveOps
+from .config_manager import ConfigManager
+from .state_manager import StateManager
+from .drive_ops import DriveOps
 
 logger = logging.getLogger(__name__)
 
@@ -33,43 +35,166 @@ class LocalFileHandler(FileSystemEventHandler):
         self.state_manager = state_manager
         self.drive_ops = drive_ops
         self.local_root = self.config_manager.get_local_root()
+        self.timers: Dict[str, Timer] = {}
+        self.debounce_seconds = 1.0
 
     def _get_relative_path(self, abs_path: str) -> str:
         """Converts an absolute path to a path relative to the local root."""
         return os.path.relpath(abs_path, self.local_root)
 
-    def on_created(self, event):
+    def _resolve_parent_id(self, rel_path: str) -> Optional[str]:
+        """Finds the remote parent ID for a given relative path."""
+        dirname = os.path.dirname(rel_path)
+        if not dirname:
+            return None
+
+        entry = self.state_manager.get_file(dirname)
+        if entry:
+            return entry.get("id")
+        return None
+
+    def on_created(self, event: FileSystemEvent) -> None:
+        """
+        Called when a file or directory is created.
+
+        Args:
+            event: The event object containing data about the operation.
+        """
+        rel_path = self._get_relative_path(event.src_path)
+        parent_id = self._resolve_parent_id(rel_path)
+        name = os.path.basename(rel_path)
+
+        if event.is_directory:
+            logger.info(f"Event: Created Folder - {rel_path}")
+            folder_id = self.drive_ops.create_folder(name, parent_id)
+            if folder_id:
+                self.state_manager.set_file(rel_path, folder_id, "folder")
+            return
+
+        logger.info(f"Event: Created File - {rel_path}")
+        mime_type, _ = mimetypes.guess_type(event.src_path)
+        file_meta = self.drive_ops.upload_file(
+            event.src_path, name, parent_id, mime_type
+        )
+        if file_meta:
+            self.state_manager.set_file(
+                rel_path, file_meta["id"], file_meta.get("md5Checksum")
+            )
+
+    def on_modified(self, event: FileSystemEvent) -> None:
+        """
+        Called when a file or directory is modified.
+        Debounces the event to prevent duplicate uploads.
+
+        Args:
+            event: The event object containing data about the operation.
+        """
         if event.is_directory:
             return
 
-        rel_path = self._get_relative_path(event.src_path)
-        logger.info(f"Event: Created - {rel_path}")
-        # TODO: Implement upload logic (Step 4.2)
+        if event.src_path in self.timers:
+            self.timers[event.src_path].cancel()
 
-    def on_modified(self, event: FileSystemEvent) -> None:
-        if event.is_directory:
+        timer = Timer(self.debounce_seconds, self._process_modified, args=[event])
+        self.timers[event.src_path] = timer
+        timer.start()
+
+    def _process_modified(self, event: FileSystemEvent) -> None:
+        """
+        Processes the modified event after the debounce timer expires.
+
+        Args:
+            event: The event object containing data about the operation.
+        """
+        if event.src_path in self.timers:
+            del self.timers[event.src_path]
+
+        if not os.path.exists(event.src_path):
             return
 
         rel_path = self._get_relative_path(event.src_path)
         logger.info(f"Event: Modified - {rel_path}")
-        # TODO: Implement upload logic (Step 4.2)
 
-    def on_moved(self, event):
+        entry = self.state_manager.get_file(rel_path)
+        mime_type, _ = mimetypes.guess_type(event.src_path)
+
+        if entry:
+            file_meta = self.drive_ops.update_file(
+                entry["id"], event.src_path, mime_type
+            )
+            if file_meta:
+                self.state_manager.set_file(
+                    rel_path, file_meta["id"], file_meta.get("md5Checksum")
+                )
+        else:
+            # Treat as new upload if not in state
+            parent_id = self._resolve_parent_id(rel_path)
+            name = os.path.basename(rel_path)
+            file_meta = self.drive_ops.upload_file(
+                event.src_path, name, parent_id, mime_type
+            )
+            if file_meta:
+                self.state_manager.set_file(
+                    rel_path, file_meta["id"], file_meta.get("md5Checksum")
+                )
+
+    def on_moved(self, event: FileSystemEvent) -> None:
+        """
+        Called when a file or directory is moved or renamed.
+
+        Args:
+            event: The event object containing data about the operation.
+        """
         if event.is_directory:
             return
+
+        if event.src_path in self.timers:
+            self.timers[event.src_path].cancel()
+            del self.timers[event.src_path]
 
         src_rel_path = self._get_relative_path(event.src_path)
         dest_rel_path = self._get_relative_path(event.dest_path)
         logger.info(f"Event: Moved - {src_rel_path} to {dest_rel_path}")
-        # TODO: Implement move/rename logic (Step 4.3)
+
+        entry = self.state_manager.get_file(src_rel_path)
+        if entry:
+            file_id = entry["id"]
+            new_name = os.path.basename(dest_rel_path)
+            new_parent_id = self._resolve_parent_id(dest_rel_path)
+
+            self.drive_ops.move_file(file_id, new_name, new_parent_id)
+
+            # Update state: remove old path, add new path
+            self.state_manager.remove_file(src_rel_path)
+            self.state_manager.set_file(dest_rel_path, file_id, entry["md5"])
 
     def on_deleted(self, event: FileSystemEvent) -> None:
+        """
+        Called when a file or directory is deleted.
+
+        Args:
+            event: The event object containing data about the operation.
+        """
         if event.is_directory:
             return
 
+        if event.src_path in self.timers:
+            self.timers[event.src_path].cancel()
+            del self.timers[event.src_path]
+
         rel_path = self._get_relative_path(event.src_path)
         logger.info(f"Event: Deleted - {rel_path}")
-        # TODO: Implement delete logic (Step 4.4)
+
+        entry = self.state_manager.get_file(rel_path)
+        if entry:
+            self.drive_ops.delete_file(entry["id"])
+            self.state_manager.remove_file(rel_path)
+
+    def stop(self) -> None:
+        """Cancels all pending debounce timers."""
+        for timer in self.timers.values():
+            timer.cancel()
+        self.timers.clear()
 
 
 class LocalMonitor:
@@ -83,6 +208,12 @@ class LocalMonitor:
         state_manager: StateManager,
         drive_ops: DriveOps,
     ):
+        """
+        Args:
+            config_manager: Instance of ConfigManager.
+            state_manager: Instance of StateManager.
+            drive_ops: Instance of DriveOps.
+        """
         self.config_manager = config_manager
         self.handler = LocalFileHandler(config_manager, state_manager, drive_ops)
         self.observer = Observer()
@@ -97,5 +228,6 @@ class LocalMonitor:
     def stop(self) -> None:
         """Stops the directory monitoring."""
         logger.info("Stopping LocalMonitor...")
+        self.handler.stop()
         self.observer.stop()
         self.observer.join()
