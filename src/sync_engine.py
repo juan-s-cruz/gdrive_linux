@@ -21,7 +21,7 @@ class SyncEngine:
         config_manager: ConfigManager,
         state_manager: StateManager,
         drive_ops: DriveOps,
-    ):
+    ) -> None:
         """
         Initializes the SyncEngine.
 
@@ -40,6 +40,9 @@ class SyncEngine:
     def _load_selective_sync_rules(self) -> List[str]:
         """
         Loads selective sync folders from config and normalizes paths.
+
+        Returns:
+            List[str]: A list of normalized folder paths.
         """
         folders = self.config_manager.get_selective_sync_folders()
         if not folders:
@@ -86,7 +89,7 @@ class SyncEngine:
 
         return False
 
-    def sync(self):
+    def sync(self) -> None:
         """
         Main entry point for the synchronization process.
         Performs a one-way sync from Drive to Local (Down-Sync).
@@ -96,9 +99,13 @@ class SyncEngine:
         self._sync_recursive("root", "")
         logger.info("Down-Sync cycle complete.")
 
-    def _sync_recursive(self, parent_id: str, current_rel_path: str):
+    def _sync_recursive(self, parent_id: str, current_rel_path: str) -> None:
         """
         Recursively lists files from Drive and syncs them locally.
+
+        Args:
+            parent_id (str): The Drive ID of the folder to list.
+            current_rel_path (str): The relative path of the current folder from the root.
         """
         # List remote files in this folder
         items = self.drive_ops.list_files(parent_id)
@@ -126,8 +133,14 @@ class SyncEngine:
             else:
                 self._sync_file(rel_path, item_id, remote_md5)
 
-    def _sync_folder(self, rel_path: str, folder_id: str):
-        """Handles folder creation and recursion."""
+    def _sync_folder(self, rel_path: str, folder_id: str) -> None:
+        """
+        Handles folder creation and recursion.
+
+        Args:
+            rel_path (str): The relative path of the folder.
+            folder_id (str): The Drive ID of the folder.
+        """
         local_path = os.path.join(self.config_manager.get_local_root(), rel_path)
 
         if not os.path.exists(local_path):
@@ -140,8 +153,15 @@ class SyncEngine:
         # Recurse
         self._sync_recursive(folder_id, rel_path)
 
-    def _sync_file(self, rel_path: str, file_id: str, remote_md5: str):
-        """Handles file download if needed."""
+    def _sync_file(self, rel_path: str, file_id: str, remote_md5: str) -> None:
+        """
+        Handles file download if needed.
+
+        Args:
+            rel_path (str): The relative path of the file.
+            file_id (str): The Drive ID of the file.
+            remote_md5 (str): The MD5 checksum of the remote file.
+        """
         local_path = os.path.join(self.config_manager.get_local_root(), rel_path)
 
         # Check if download is required
@@ -151,7 +171,17 @@ class SyncEngine:
                 self.state_manager.set_file(rel_path, file_id, remote_md5)
 
     def _should_download(self, rel_path: str, local_path: str, remote_md5: str) -> bool:
-        """Decides if a file should be downloaded."""
+        """
+        Decides if a file should be downloaded.
+
+        Args:
+            rel_path (str): The relative path of the file.
+            local_path (str): The absolute local path of the file.
+            remote_md5 (str): The MD5 checksum of the remote file.
+
+        Returns:
+            bool: True if the file should be downloaded, False otherwise.
+        """
         # If local file doesn't exist, download
         if not os.path.exists(local_path):
             return True
@@ -164,7 +194,7 @@ class SyncEngine:
         # If state differs (or no state), download
         return True
 
-    def start(self, interval: int = 60):
+    def start(self, interval: int = 60) -> None:
         """
         Starts the polling loop in a blocking manner.
 
