@@ -38,6 +38,19 @@ class LocalFileHandler(FileSystemEventHandler):
         self.timers: Dict[str, Timer] = {}
         self.debounce_seconds = 1.0
         self.ignored_paths = set()
+        self.ignored_extensions = {
+            ".part",
+            ".tmp",
+            ".crdownload",
+            ".swp",
+            ".goutputstream",
+        }
+
+    def _should_ignore(self, path: str) -> bool:
+        """Checks if a path should be ignored based on extension or explicit ignore list."""
+        if path in self.ignored_paths:
+            return True
+        return os.path.splitext(path)[1] in self.ignored_extensions
 
     def _get_relative_path(self, abs_path: str) -> str:
         """Converts an absolute path to a path relative to the local root."""
@@ -71,7 +84,7 @@ class LocalFileHandler(FileSystemEventHandler):
         Args:
             event: The event object containing data about the operation.
         """
-        if event.src_path in self.ignored_paths:
+        if self._should_ignore(event.src_path):
             return
 
         rel_path = self._get_relative_path(event.src_path)
@@ -103,7 +116,7 @@ class LocalFileHandler(FileSystemEventHandler):
         Args:
             event: The event object containing data about the operation.
         """
-        if event.src_path in self.ignored_paths:
+        if self._should_ignore(event.src_path):
             return
 
         if event.is_directory:
@@ -162,10 +175,7 @@ class LocalFileHandler(FileSystemEventHandler):
         Args:
             event: The event object containing data about the operation.
         """
-        if (
-            event.src_path in self.ignored_paths
-            or event.dest_path in self.ignored_paths
-        ):
+        if event.src_path in self.ignored_paths or self._should_ignore(event.dest_path):
             return
 
         if event.is_directory:
@@ -190,6 +200,18 @@ class LocalFileHandler(FileSystemEventHandler):
             # Update state: remove old path, add new path
             self.state_manager.remove_file(src_rel_path)
             self.state_manager.set_file(dest_rel_path, file_id, entry["md5"])
+        else:
+            # Source not in state (e.g. was ignored temp file), treat as new upload
+            parent_id = self._resolve_parent_id(dest_rel_path)
+            name = os.path.basename(dest_rel_path)
+            mime_type, _ = mimetypes.guess_type(event.dest_path)
+            file_meta = self.drive_ops.upload_file(
+                event.dest_path, name, parent_id, mime_type
+            )
+            if file_meta:
+                self.state_manager.set_file(
+                    dest_rel_path, file_meta["id"], file_meta.get("md5Checksum")
+                )
 
     def on_deleted(self, event: FileSystemEvent) -> None:
         """
@@ -198,7 +220,7 @@ class LocalFileHandler(FileSystemEventHandler):
         Args:
             event: The event object containing data about the operation.
         """
-        if event.src_path in self.ignored_paths:
+        if self._should_ignore(event.src_path):
             return
 
         if event.is_directory:
