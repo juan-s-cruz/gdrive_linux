@@ -1,5 +1,6 @@
 import io
 import logging
+from typing import List, Dict, Optional, Any
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from googleapiclient.errors import HttpError
 
@@ -12,14 +13,14 @@ class DriveOps:
     creating folders, and fetching metadata.
     """
 
-    def __init__(self, service):
+    def __init__(self, service: Any):
         """
         Args:
             service: Authenticated Google Drive service resource.
         """
         self.service = service
 
-    def list_files(self, folder_id=None):
+    def list_files(self, folder_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Lists all files in a specific folder (non-recursive).
 
@@ -58,7 +59,7 @@ class DriveOps:
             logger.error(f"An error occurred listing files: {error}")
             return []
 
-    def download_file(self, file_id, local_path):
+    def download_file(self, file_id: str, local_path: str) -> bool:
         """
         Downloads a file's content to a local path.
 
@@ -79,7 +80,13 @@ class DriveOps:
             logger.error(f"An error occurred downloading file {file_id}: {error}")
             return False
 
-    def upload_file(self, local_path, name, parent_id=None, mime_type=None):
+    def upload_file(
+        self,
+        local_path: str,
+        name: str,
+        parent_id: Optional[str] = None,
+        mime_type: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """
         Uploads a new file to Drive.
 
@@ -143,7 +150,7 @@ class DriveOps:
             logger.error(f"An error occurred creating folder {name}: {error}")
             return None
 
-    def get_metadata(self, file_id):
+    def get_metadata(self, file_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieves metadata for a file.
 

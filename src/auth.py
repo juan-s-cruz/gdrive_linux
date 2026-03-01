@@ -1,4 +1,5 @@
 import os.path
+from typing import Optional
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -10,7 +11,7 @@ CREDENTIALS_FILE = "credentials.json"
 TOKEN_FILE = "token.json"
 
 
-def authenticate():
+def authenticate() -> Optional[Credentials]:
     """
     Authenticates the user with Google Drive API using OAuth2.
     Saves the credentials to token.json for future use.

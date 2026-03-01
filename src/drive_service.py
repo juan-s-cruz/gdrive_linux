@@ -1,3 +1,4 @@
+from typing import Any
 from googleapiclient.discovery import build
 
 from auth import authenticate
@@ -13,7 +14,7 @@ class DriveService:
         # Build the Drive v3 API service
         self.service = build("drive", "v3", credentials=self.creds)
 
-    def get_service(self):
+    def get_service(self) -> Any:
         """Returns the raw service object."""
         return self.service
 

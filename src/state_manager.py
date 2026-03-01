@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+from typing import Dict, Optional
 
 
 class StateManager:
@@ -9,12 +10,12 @@ class StateManager:
     Thread-safe to allow concurrent access from Monitor and Poller.
     """
 
-    def __init__(self, state_path="state.json"):
+    def __init__(self, state_path: str = "state.json"):
         self.state_path = state_path
         self.lock = threading.Lock()
         self.state = self._load_state()
 
-    def _load_state(self):
+    def _load_state(self) -> Dict[str, Dict[str, str]]:
         if not os.path.exists(self.state_path):
             return {}
         try:
@@ -24,12 +25,12 @@ class StateManager:
             # Return empty state if file is corrupted or unreadable
             return {}
 
-    def save_state(self):
+    def save_state(self) -> None:
         """Persists the current state to disk."""
         with self.lock:
             self._save_state_unsafe()
 
-    def _save_state_unsafe(self):
+    def _save_state_unsafe(self) -> None:
         """Internal helper to save state without re-acquiring lock."""
         try:
             with open(self.state_path, "w") as f:
@@ -37,25 +38,25 @@ class StateManager:
         except IOError as e:
             print(f"Error saving state: {e}")
 
-    def get_file(self, relative_path):
+    def get_file(self, relative_path: str) -> Optional[Dict[str, str]]:
         """Returns the metadata for a given file path."""
         with self.lock:
             return self.state.get(relative_path)
 
-    def set_file(self, relative_path, file_id, md5):
+    def set_file(self, relative_path: str, file_id: str, md5: Optional[str]) -> None:
         """Updates or adds a file to the state."""
         with self.lock:
             self.state[relative_path] = {"id": file_id, "md5": md5}
             self._save_state_unsafe()
 
-    def remove_file(self, relative_path):
+    def remove_file(self, relative_path: str) -> None:
         """Removes a file from the state."""
         with self.lock:
             if relative_path in self.state:
                 del self.state[relative_path]
                 self._save_state_unsafe()
 
-    def get_all_files(self):
+    def get_all_files(self) -> Dict[str, Dict[str, str]]:
         """Returns a copy of the entire state."""
         with self.lock:
             return self.state.copy()

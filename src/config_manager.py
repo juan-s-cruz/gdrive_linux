@@ -1,5 +1,6 @@
 import json
 import os
+from typing import List, Dict, Any
 
 
 class ConfigManager:
@@ -7,11 +8,11 @@ class ConfigManager:
     Handles loading and validation of the configuration file.
     """
 
-    def __init__(self, config_path="config.json"):
+    def __init__(self, config_path: str = "config.json"):
         self.config_path = config_path
         self.config = self._load_config()
 
-    def _load_config(self):
+    def _load_config(self) -> Dict[str, Any]:
         if not os.path.exists(self.config_path):
             raise FileNotFoundError(f"Config file not found: {self.config_path}")
 
@@ -32,10 +33,10 @@ class ConfigManager:
 
         return config
 
-    def get_local_root(self):
+    def get_local_root(self) -> str:
         return self.config["local_root_path"]
 
-    def get_selective_sync_folders(self):
+    def get_selective_sync_folders(self) -> List[str]:
         return self.config.get("selective_sync_folders", [])
 
 
