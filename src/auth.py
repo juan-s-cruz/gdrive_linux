@@ -3,6 +3,7 @@ from typing import Optional
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.exceptions import RefreshError
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/drive"]
@@ -26,8 +27,13 @@ def authenticate() -> Optional[Credentials]:
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except RefreshError:
+                print("Token has expired or been revoked. Re-authenticating...")
+                creds = None
+
+        if not creds:
             if not os.path.exists(CREDENTIALS_FILE):
                 print(f"Error: {CREDENTIALS_FILE} not found.")
                 print(
