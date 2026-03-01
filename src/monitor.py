@@ -37,6 +37,7 @@ class LocalFileHandler(FileSystemEventHandler):
         self.local_root = self.config_manager.get_local_root()
         self.timers: Dict[str, Timer] = {}
         self.debounce_seconds = 1.0
+        self.ignored_paths = set()
 
     def _get_relative_path(self, abs_path: str) -> str:
         """Converts an absolute path to a path relative to the local root."""
@@ -53,6 +54,16 @@ class LocalFileHandler(FileSystemEventHandler):
             return entry.get("id")
         return None
 
+    def ignore_path(self, path: str) -> None:
+        """Temporarily ignores events for a specific path."""
+        self.ignored_paths.add(path)
+        # Remove after delay to allow event to process (5 seconds TTL)
+        Timer(5.0, self._unignore_path, args=[path]).start()
+
+    def _unignore_path(self, path: str) -> None:
+        if path in self.ignored_paths:
+            self.ignored_paths.remove(path)
+
     def on_created(self, event: FileSystemEvent) -> None:
         """
         Called when a file or directory is created.
@@ -60,6 +71,9 @@ class LocalFileHandler(FileSystemEventHandler):
         Args:
             event: The event object containing data about the operation.
         """
+        if event.src_path in self.ignored_paths:
+            return
+
         rel_path = self._get_relative_path(event.src_path)
         parent_id = self._resolve_parent_id(rel_path)
         name = os.path.basename(rel_path)
@@ -89,6 +103,9 @@ class LocalFileHandler(FileSystemEventHandler):
         Args:
             event: The event object containing data about the operation.
         """
+        if event.src_path in self.ignored_paths:
+            return
+
         if event.is_directory:
             return
 
@@ -145,6 +162,12 @@ class LocalFileHandler(FileSystemEventHandler):
         Args:
             event: The event object containing data about the operation.
         """
+        if (
+            event.src_path in self.ignored_paths
+            or event.dest_path in self.ignored_paths
+        ):
+            return
+
         if event.is_directory:
             return
 
@@ -175,6 +198,9 @@ class LocalFileHandler(FileSystemEventHandler):
         Args:
             event: The event object containing data about the operation.
         """
+        if event.src_path in self.ignored_paths:
+            return
+
         if event.is_directory:
             return
 
@@ -224,6 +250,10 @@ class LocalMonitor:
         logger.info(f"Starting LocalMonitor on: {path}")
         self.observer.schedule(self.handler, path, recursive=True)
         self.observer.start()
+
+    def ignore_path(self, path: str) -> None:
+        """Temporarily ignores events for a specific path."""
+        self.handler.ignore_path(path)
 
     def stop(self) -> None:
         """Stops the directory monitoring."""

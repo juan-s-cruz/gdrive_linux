@@ -2,11 +2,12 @@ import logging
 import os
 import shutil
 import time
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from .config_manager import ConfigManager
 from .state_manager import StateManager
 from .drive_ops import DriveOps
+from .monitor import LocalMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,11 @@ class SyncEngine:
 
         # Load and normalize selective sync folders
         self.selective_sync_folders = self._load_selective_sync_rules()
+
+        # Initialize Local Monitor for Up-Sync
+        self.monitor = LocalMonitor(
+            self.config_manager, self.state_manager, self.drive_ops
+        )
 
     def _load_selective_sync_rules(self) -> List[str]:
         """
@@ -174,6 +180,7 @@ class SyncEngine:
         local_path = os.path.join(self.config_manager.get_local_root(), rel_path)
 
         if not os.path.exists(local_path):
+            self.monitor.ignore_path(local_path)
             os.makedirs(local_path, exist_ok=True)
             logger.info(f"Created local folder: {rel_path}")
 
@@ -204,6 +211,7 @@ class SyncEngine:
 
         # Check if download is required
         if self._should_download(rel_path, local_path, remote_md5):
+            self.monitor.ignore_path(local_path)
             success = self.drive_ops.download_file(file_id, local_path)
             if success:
                 self.state_manager.set_file(rel_path, file_id, remote_md5)
@@ -244,6 +252,7 @@ class SyncEngine:
         local_path = os.path.join(self.config_manager.get_local_root(), rel_path)
         if os.path.exists(local_path):
             try:
+                self.monitor.ignore_path(local_path)
                 if os.path.isdir(local_path):
                     shutil.rmtree(local_path)
                 else:
@@ -265,6 +274,8 @@ class SyncEngine:
         base, ext = os.path.splitext(local_path)
         timestamp = int(time.time())
         new_path = f"{base}_conflict_{timestamp}{ext}"
+        self.monitor.ignore_path(local_path)
+        self.monitor.ignore_path(new_path)
         os.rename(local_path, new_path)
         logger.warning(
             f"Conflict detected. Renamed local file to: {os.path.basename(new_path)}"
@@ -277,6 +288,9 @@ class SyncEngine:
         Args:
             interval (int): Seconds to wait between sync cycles.
         """
+        # Start the Local Monitor (Up-Sync)
+        self.monitor.start()
+
         logger.info(f"Starting Sync Engine polling loop (Interval: {interval}s)...")
         while True:
             try:
@@ -284,3 +298,7 @@ class SyncEngine:
             except Exception as e:
                 logger.error(f"Error during sync cycle: {e}")
             time.sleep(interval)
+
+    def stop(self) -> None:
+        """Stops the local monitor."""
+        self.monitor.stop()
