@@ -27,9 +27,9 @@ class SyncEngine:
         Initializes the SyncEngine.
 
         Args:
-            config_manager: Instance of ConfigManager.
-            state_manager: Instance of StateManager.
-            drive_ops: Instance of DriveOps.
+            config_manager (ConfigManager): Instance of ConfigManager.
+            state_manager (StateManager): Instance of StateManager.
+            drive_ops (DriveOps): Instance of DriveOps.
         """
         self.config_manager = config_manager
         self.state_manager = state_manager
@@ -78,6 +78,10 @@ class SyncEngine:
             return True
 
         for folder in self.selective_sync_folders:
+            # Case 0: If rule is root, allow everything
+            if folder == ".":
+                return True
+
             # Case 1: Path is the allowed folder or inside it
             # e.g. folder="Photos", path="Photos/2023.jpg"
             if rel_path == folder or rel_path.startswith(folder + os.sep):
@@ -141,13 +145,13 @@ class SyncEngine:
 
         self._handle_deletions(current_rel_path, remote_names)
 
-    def _handle_deletions(self, current_rel_path: str, remote_names: set) -> None:
+    def _handle_deletions(self, current_rel_path: str, remote_names: Set[str]) -> None:
         """
         Checks for local files that are missing remotely and deletes them if they were previously synced.
 
         Args:
             current_rel_path (str): The relative path of the current folder.
-            remote_names (set): A set of filenames present on the remote side.
+            remote_names (Set[str]): A set of filenames present on the remote side.
         """
         local_dir = os.path.join(self.config_manager.get_local_root(), current_rel_path)
         if os.path.exists(local_dir):
@@ -179,14 +183,16 @@ class SyncEngine:
         # Recurse
         self._sync_recursive(folder_id, rel_path)
 
-    def _sync_file(self, rel_path: str, file_id: str, remote_md5: str) -> None:
+    def _sync_file(
+        self, rel_path: str, file_id: str, remote_md5: Optional[str]
+    ) -> None:
         """
         Handles file download if needed.
 
         Args:
             rel_path (str): The relative path of the file.
             file_id (str): The Drive ID of the file.
-            remote_md5 (str): The MD5 checksum of the remote file.
+            remote_md5 (str, optional): The MD5 checksum of the remote file.
         """
         local_path = os.path.join(self.config_manager.get_local_root(), rel_path)
 
@@ -202,14 +208,16 @@ class SyncEngine:
             if success:
                 self.state_manager.set_file(rel_path, file_id, remote_md5)
 
-    def _should_download(self, rel_path: str, local_path: str, remote_md5: str) -> bool:
+    def _should_download(
+        self, rel_path: str, local_path: str, remote_md5: Optional[str]
+    ) -> bool:
         """
         Decides if a file should be downloaded.
 
         Args:
             rel_path (str): The relative path of the file.
             local_path (str): The absolute local path of the file.
-            remote_md5 (str): The MD5 checksum of the remote file.
+            remote_md5 (str, optional): The MD5 checksum of the remote file.
 
         Returns:
             bool: True if the file should be downloaded, False otherwise.
