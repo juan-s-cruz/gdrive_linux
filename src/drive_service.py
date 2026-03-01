@@ -10,6 +10,9 @@ class DriveService:
     """
 
     def __init__(self):
+        """
+        Initializes the DriveService by authenticating and building the API client.
+        """
         self.creds = authenticate()
         # Build the Drive v3 API service
         self.service = build("drive", "v3", credentials=self.creds)

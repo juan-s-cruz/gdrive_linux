@@ -11,11 +11,23 @@ class StateManager:
     """
 
     def __init__(self, state_path: str = "state.json"):
+        """
+        Initializes the StateManager.
+
+        Args:
+            state_path (str): Path to the JSON file storing the state.
+        """
         self.state_path = state_path
         self.lock = threading.Lock()
         self.state = self._load_state()
 
     def _load_state(self) -> Dict[str, Dict[str, str]]:
+        """
+        Loads the state from the JSON file.
+
+        Returns:
+            dict: The loaded state dictionary, or an empty dict if not found/corrupt.
+        """
         if not os.path.exists(self.state_path):
             return {}
         try:

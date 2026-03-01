@@ -9,10 +9,26 @@ class ConfigManager:
     """
 
     def __init__(self, config_path: str = "config.json"):
+        """
+        Initializes the ConfigManager.
+
+        Args:
+            config_path (str): Path to the configuration JSON file.
+        """
         self.config_path = config_path
         self.config = self._load_config()
 
     def _load_config(self) -> Dict[str, Any]:
+        """
+        Loads and validates the configuration from the JSON file.
+
+        Returns:
+            dict: The configuration dictionary.
+
+        Raises:
+            FileNotFoundError: If the config file does not exist.
+            ValueError: If required keys are missing.
+        """
         if not os.path.exists(self.config_path):
             raise FileNotFoundError(f"Config file not found: {self.config_path}")
 
@@ -34,9 +50,11 @@ class ConfigManager:
         return config
 
     def get_local_root(self) -> str:
+        """Returns the absolute path to the local root directory."""
         return self.config["local_root_path"]
 
     def get_selective_sync_folders(self) -> List[str]:
+        """Returns the list of folders enabled for selective sync."""
         return self.config.get("selective_sync_folders", [])
 
 
