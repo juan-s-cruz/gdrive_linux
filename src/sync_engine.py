@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import time
 from typing import List, Optional
 
@@ -110,6 +111,9 @@ class SyncEngine:
         # List remote files in this folder
         items = self.drive_ops.list_files(parent_id)
 
+        # Track names found on remote to detect deletions later
+        remote_names = set()
+
         for item in items:
             name = item["name"]
             item_id = item["id"]
@@ -126,12 +130,34 @@ class SyncEngine:
             if not self.is_path_allowed(rel_path):
                 continue
 
+            remote_names.add(name)
+
             # Handle Folder
             if mime_type == "application/vnd.google-apps.folder":
                 self._sync_folder(rel_path, item_id)
             # Handle File
             else:
                 self._sync_file(rel_path, item_id, remote_md5)
+
+        self._handle_deletions(current_rel_path, remote_names)
+
+    def _handle_deletions(self, current_rel_path: str, remote_names: set) -> None:
+        """
+        Checks for local files that are missing remotely and deletes them if they were previously synced.
+
+        Args:
+            current_rel_path (str): The relative path of the current folder.
+            remote_names (set): A set of filenames present on the remote side.
+        """
+        local_dir = os.path.join(self.config_manager.get_local_root(), current_rel_path)
+        if os.path.exists(local_dir):
+            for local_name in os.listdir(local_dir):
+                if local_name not in remote_names:
+                    local_rel_path = os.path.join(current_rel_path, local_name)
+                    # Only delete if it was previously synced (exists in state)
+                    # If not in state, it's a new local file waiting for upload -> Keep it
+                    if self.state_manager.get_file(local_rel_path):
+                        self._delete_local(local_rel_path)
 
     def _sync_folder(self, rel_path: str, folder_id: str) -> None:
         """
@@ -164,6 +190,12 @@ class SyncEngine:
         """
         local_path = os.path.join(self.config_manager.get_local_root(), rel_path)
 
+        # Conflict Resolution:
+        # If local file exists but is NOT tracked in state, it's a collision.
+        # Rename the local file to preserve it before downloading the remote one.
+        if os.path.exists(local_path) and not self.state_manager.get_file(rel_path):
+            self._resolve_conflict(local_path)
+
         # Check if download is required
         if self._should_download(rel_path, local_path, remote_md5):
             success = self.drive_ops.download_file(file_id, local_path)
@@ -193,6 +225,42 @@ class SyncEngine:
 
         # If state differs (or no state), download
         return True
+
+    def _delete_local(self, rel_path: str) -> None:
+        """
+        Deletes a local file or folder and updates state.
+
+        Args:
+            rel_path (str): The relative path of the item to delete.
+        """
+        local_path = os.path.join(self.config_manager.get_local_root(), rel_path)
+        if os.path.exists(local_path):
+            try:
+                if os.path.isdir(local_path):
+                    shutil.rmtree(local_path)
+                else:
+                    os.remove(local_path)
+                logger.info(f"Deleted local item (Remote deletion): {rel_path}")
+            except OSError as e:
+                logger.error(f"Failed to delete {local_path}: {e}")
+
+        # Remove from state
+        self.state_manager.remove_file(rel_path)
+
+    def _resolve_conflict(self, local_path: str) -> None:
+        """
+        Renames a local file to avoid overwriting it during download.
+
+        Args:
+            local_path (str): The absolute path of the local file causing conflict.
+        """
+        base, ext = os.path.splitext(local_path)
+        timestamp = int(time.time())
+        new_path = f"{base}_conflict_{timestamp}{ext}"
+        os.rename(local_path, new_path)
+        logger.warning(
+            f"Conflict detected. Renamed local file to: {os.path.basename(new_path)}"
+        )
 
     def start(self, interval: int = 60) -> None:
         """
