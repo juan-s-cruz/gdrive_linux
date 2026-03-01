@@ -1,5 +1,6 @@
 import io
 import logging
+from typing import List, Dict, Optional, Any
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from googleapiclient.errors import HttpError
 
@@ -12,14 +13,14 @@ class DriveOps:
     creating folders, and fetching metadata.
     """
 
-    def __init__(self, service):
+    def __init__(self, service: Any):
         """
         Args:
             service: Authenticated Google Drive service resource.
         """
         self.service = service
 
-    def list_files(self, folder_id=None):
+    def list_files(self, folder_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Lists all files in a specific folder (non-recursive).
 
@@ -58,7 +59,7 @@ class DriveOps:
             logger.error(f"An error occurred listing files: {error}")
             return []
 
-    def download_file(self, file_id, local_path):
+    def download_file(self, file_id: str, local_path: str) -> bool:
         """
         Downloads a file's content to a local path.
 
@@ -79,7 +80,13 @@ class DriveOps:
             logger.error(f"An error occurred downloading file {file_id}: {error}")
             return False
 
-    def upload_file(self, local_path, name, parent_id=None, mime_type=None):
+    def upload_file(
+        self,
+        local_path: str,
+        name: str,
+        parent_id: Optional[str] = None,
+        mime_type: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """
         Uploads a new file to Drive.
 
@@ -114,7 +121,108 @@ class DriveOps:
             logger.error(f"An error occurred uploading file {local_path}: {error}")
             return None
 
-    def create_folder(self, name, parent_id=None):
+    def update_file(
+        self, file_id: str, local_path: str, mime_type: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Updates an existing file's content on Drive.
+
+        Args:
+            file_id (str): The ID of the file to update.
+            local_path (str): Path to the local file.
+            mime_type (str, optional): MIME type of the file.
+
+        Returns:
+            dict: The updated file resource, or None on failure.
+        """
+        try:
+            media = MediaFileUpload(local_path, mimetype=mime_type, resumable=True)
+
+            file = (
+                self.service.files()
+                .update(
+                    fileId=file_id,
+                    media_body=media,
+                    fields="id, name, md5Checksum, parents",
+                )
+                .execute()
+            )
+            logger.info(f"Updated file {file_id}")
+            return file
+        except HttpError as error:
+            logger.error(f"An error occurred updating file {local_path}: {error}")
+            return None
+
+    def move_file(
+        self,
+        file_id: str,
+        new_name: Optional[str] = None,
+        new_parent_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Moves or renames a file on Drive.
+
+        Args:
+            file_id (str): The ID of the file to move/rename.
+            new_name (str, optional): The new name for the file.
+            new_parent_id (str, optional): The ID of the new parent folder.
+
+        Returns:
+            dict: The updated file resource, or None on failure.
+        """
+        try:
+            metadata = {}
+            if new_name:
+                metadata["name"] = new_name
+
+            if new_parent_id:
+                # Retrieve current parents to remove them
+                file = (
+                    self.service.files().get(fileId=file_id, fields="parents").execute()
+                )
+                previous_parents = ",".join(file.get("parents") or [])
+
+                request = self.service.files().update(
+                    fileId=file_id,
+                    body=metadata,
+                    addParents=new_parent_id,
+                    removeParents=previous_parents,
+                    fields="id, name, parents",
+                )
+            else:
+                # Just rename (or move within same parent if logic allows)
+                request = self.service.files().update(
+                    fileId=file_id, body=metadata, fields="id, name, parents"
+                )
+
+            updated_file = request.execute()
+            logger.info(f"Moved/Renamed file {file_id}")
+            return updated_file
+        except HttpError as error:
+            logger.error(f"An error occurred moving file {file_id}: {error}")
+            return None
+
+    def delete_file(self, file_id: str) -> bool:
+        """
+        Permanently deletes a file from Drive.
+
+        Args:
+            file_id (str): The ID of the file to delete.
+
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            self.service.files().delete(fileId=file_id).execute()
+            logger.info(f"Deleted file {file_id}")
+            return True
+        except HttpError as error:
+            logger.error(f"An error occurred deleting file {file_id}: {error}")
+            return False
+
+    def create_folder(
+        self, name: str, parent_id: Optional[str] = None
+    ) -> Optional[str]:
         """
         Creates a folder on Drive.
 
@@ -143,7 +251,7 @@ class DriveOps:
             logger.error(f"An error occurred creating folder {name}: {error}")
             return None
 
-    def get_metadata(self, file_id):
+    def get_metadata(self, file_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieves metadata for a file.
 
