@@ -120,6 +120,11 @@ class DriveOps:
         except HttpError as error:
             logger.error(f"An error occurred uploading file {local_path}: {error}")
             return None
+        except OSError as error:
+            logger.warning(
+                f"Skipping upload for {local_path} (file may have moved/deleted): {error}"
+            )
+            return None
 
     def update_file(
         self, file_id: str, local_path: str, mime_type: Optional[str] = None
@@ -151,6 +156,11 @@ class DriveOps:
             return file
         except HttpError as error:
             logger.error(f"An error occurred updating file {local_path}: {error}")
+            return None
+        except OSError as error:
+            logger.warning(
+                f"Skipping update for {local_path} (file may have moved/deleted): {error}"
+            )
             return None
 
     def move_file(
