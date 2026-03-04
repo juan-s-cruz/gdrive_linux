@@ -14,6 +14,47 @@ We utilize **Python** to build a **continuously running daemon**. This backgroun
 *   **Authentication**: Secure access using Google OAuth2.
 *   **Selective Sync**: Ability to specify which remote folders should be synced locally, ignoring others.
 
+## Installation & Usage
+
+### 1. Install via pip
+
+Run the following command in the project root to install the package and dependencies:
+
+```bash
+pip install .
+```
+
+### 2. Setup Configuration
+
+The application stores configuration and credentials in `~/.gdrive_client`.
+
+1.  **Create the directory**:
+    ```bash
+    mkdir -p ~/.gdrive_client
+    ```
+
+2.  **Credentials**: Download your OAuth 2.0 Client ID JSON from Google Cloud Console, rename it to `credentials.json`, and move it to `~/.gdrive_client/`.
+
+3.  **Config**: Create `~/.gdrive_client/config.json`:
+    ```json
+    {
+        "local_root_path": "~/GoogleDrive",
+        "selective_sync_folders": []
+    }
+    ```
+
+### 3. Run
+
+Start the daemon using the installed console script:
+
+```bash
+gdrive-client
+```
+
+On the first run, it will open a browser to authenticate.
+
+You may want to create a service on boot or send the job to the background.
+
 ## Design
 
 The architecture consists of three main components:
