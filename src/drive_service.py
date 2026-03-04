@@ -9,11 +9,11 @@ class DriveService:
     Wrapper for the Google Drive API service.
     """
 
-    def __init__(self):
+    def __init__(self, credentials_path: str, token_path: str):
         """
         Initializes the DriveService by authenticating and building the API client.
         """
-        self.creds = authenticate()
+        self.creds = authenticate(credentials_path, token_path)
         # Build the Drive v3 API service
         self.service = build("drive", "v3", credentials=self.creds)
 
@@ -23,5 +23,5 @@ class DriveService:
 
 
 if __name__ == "__main__":
-    ds = DriveService()
+    ds = DriveService("credentials.json", "token.json")
     print("Drive Service initialized successfully.")

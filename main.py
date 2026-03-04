@@ -27,15 +27,20 @@ def main() -> None:
     """
     logger.info("Initializing Google Drive Linux Client...")
 
-    # Define paths relative to the project root
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(project_root, "config.json")
-    state_path = os.path.join(project_root, "state.json")
+    # Define paths in user's home directory
+    app_dir = os.path.expanduser("~/.gdrive_client")
+    if not os.path.exists(app_dir):
+        logger.info(f"Created application directory: {app_dir}")
+
+    config_path = os.path.join(app_dir, "config.json")
+    state_path = os.path.join(app_dir, "state.json")
+    credentials_path = os.path.join(app_dir, "credentials.json")
+    token_path = os.path.join(app_dir, "token.json")
 
     # 1. Initialize Configuration
     if not os.path.exists(config_path):
         logger.error(f"Configuration file not found: {config_path}")
-        logger.info("Please create a config.json file in the project root.")
+        logger.info(f"Please create a config.json file in {app_dir}")
         sys.exit(1)
 
     try:
@@ -56,7 +61,7 @@ def main() -> None:
     # 3. Initialize Drive Operations (API Wrapper)
     try:
         # Initialize DriveService to handle authentication and client building
-        drive_service = DriveService()
+        drive_service = DriveService(credentials_path, token_path)
         drive_ops = DriveOps(drive_service.get_service())
         logger.info("Google Drive API connection established.")
     except Exception as e:
