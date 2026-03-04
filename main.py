@@ -2,6 +2,7 @@ import logging
 import os
 import signal
 import sys
+from logging.handlers import RotatingFileHandler
 from typing import Any
 
 from src.config_manager import ConfigManager
@@ -9,13 +10,6 @@ from src.drive_ops import DriveOps
 from src.drive_service import DriveService
 from src.state_manager import StateManager
 from src.sync_engine import SyncEngine
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +19,27 @@ def main() -> None:
     Main entry point for the Google Drive Linux Client.
     Initializes configuration, state, API connection, and starts the synchronization engine.
     """
-    logger.info("Initializing Google Drive Linux Client...")
-
     # Define paths in user's home directory
     app_dir = os.path.expanduser("~/.gdrive_client")
     if not os.path.exists(app_dir):
-        logger.info(f"Created application directory: {app_dir}")
+        os.makedirs(app_dir)
+
+    # Configure logging
+    log_path = os.path.join(app_dir, "gdrive_client.log")
+
+    # Use RotatingFileHandler: Max 5MB per file, keep 5 backups
+    file_handler = RotatingFileHandler(
+        log_path, maxBytes=5 * 1024 * 1024, backupCount=5
+    )
+    stream_handler = logging.StreamHandler(sys.stdout)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[stream_handler, file_handler],
+    )
+
+    logger.info("Initializing Google Drive Linux Client...")
 
     config_path = os.path.join(app_dir, "config.json")
     state_path = os.path.join(app_dir, "state.json")
