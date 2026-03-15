@@ -1,5 +1,6 @@
 import io
 import logging
+import os
 import threading
 from typing import List, Dict, Optional, Any
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
@@ -73,13 +74,20 @@ class DriveOps:
         with self.lock:
             try:
                 request = self.service.files().get_media(fileId=file_id)
-                with io.FileIO(local_path, "wb") as fh:
-                    downloader = MediaIoBaseDownload(fh, request)
-                    done = False
-                    while done is False:
-                        status, done = downloader.next_chunk()
-                logger.info(f"Downloaded file {file_id} to {local_path}")
-                return True
+                tmp_path = f"{local_path}.gdrive_tmp"
+                try:
+                    with io.FileIO(tmp_path, "wb") as fh:
+                        downloader = MediaIoBaseDownload(fh, request)
+                        done = False
+                        while done is False:
+                            status, done = downloader.next_chunk()
+                    os.replace(tmp_path, local_path)
+                    logger.info(f"Downloaded file {file_id} to {local_path}")
+                    return True
+                except Exception as e:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                    raise e
             except HttpError as error:
                 logger.error(f"An error occurred downloading file {file_id}: {error}")
                 return False

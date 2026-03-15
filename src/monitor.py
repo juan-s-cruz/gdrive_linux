@@ -50,6 +50,8 @@ class LocalFileHandler(FileSystemEventHandler):
 
     def _should_ignore(self, path: str) -> bool:
         """Checks if a path should be ignored based on extension or explicit ignore list."""
+        if os.path.islink(path):
+            return True
         if path in self.ignored_paths:
             return True
         return os.path.splitext(path)[1] in self.ignored_extensions
