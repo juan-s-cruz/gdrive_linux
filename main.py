@@ -23,6 +23,7 @@ def main() -> None:
     app_dir = os.path.expanduser("~/.gdrive_client")
     if not os.path.exists(app_dir):
         os.makedirs(app_dir)
+    os.chmod(app_dir, 0o700)
 
     # Configure logging
     log_path = os.path.join(app_dir, "gdrive_client.log")

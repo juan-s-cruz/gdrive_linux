@@ -47,6 +47,9 @@ class ConfigManager:
         if not os.path.exists(config["local_root_path"]):
             os.makedirs(config["local_root_path"])
 
+        # Restrict permissions to the owner to prevent local data leaks
+        os.chmod(config["local_root_path"], 0o700)
+
         return config
 
     def get_local_root(self) -> str:

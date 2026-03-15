@@ -130,6 +130,11 @@ class SyncEngine:
             mime_type = item["mimeType"]
             remote_md5 = item.get("md5Checksum")
 
+            # Sanitize filename to prevent path traversal
+            name = name.replace("/", "_").replace("\\", "_")
+            if name in (".", ".."):
+                name = f"_{name}_"
+
             # Construct relative path
             if current_rel_path:
                 rel_path = os.path.join(current_rel_path, name)
