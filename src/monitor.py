@@ -1,6 +1,7 @@
 import logging
 import os
 import mimetypes
+import threading
 from threading import Timer
 from typing import Optional, Dict
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
@@ -36,6 +37,7 @@ class LocalFileHandler(FileSystemEventHandler):
         self.drive_ops = drive_ops
         self.local_root = self.config_manager.get_local_root()
         self.timers: Dict[str, Timer] = {}
+        self.timers_lock = threading.Lock()
         self.debounce_seconds = 1.0
         self.ignored_paths = set()
         self.ignored_extensions = {
@@ -122,12 +124,13 @@ class LocalFileHandler(FileSystemEventHandler):
         if event.is_directory:
             return
 
-        if event.src_path in self.timers:
-            self.timers[event.src_path].cancel()
+        with self.timers_lock:
+            if event.src_path in self.timers:
+                self.timers[event.src_path].cancel()
 
-        timer = Timer(self.debounce_seconds, self._process_modified, args=[event])
-        self.timers[event.src_path] = timer
-        timer.start()
+            timer = Timer(self.debounce_seconds, self._process_modified, args=[event])
+            self.timers[event.src_path] = timer
+            timer.start()
 
     def _process_modified(self, event: FileSystemEvent) -> None:
         """
@@ -136,8 +139,9 @@ class LocalFileHandler(FileSystemEventHandler):
         Args:
             event: The event object containing data about the operation.
         """
-        if event.src_path in self.timers:
-            del self.timers[event.src_path]
+        with self.timers_lock:
+            if event.src_path in self.timers:
+                del self.timers[event.src_path]
 
         if not os.path.exists(event.src_path):
             return
@@ -181,9 +185,10 @@ class LocalFileHandler(FileSystemEventHandler):
         if event.is_directory:
             return
 
-        if event.src_path in self.timers:
-            self.timers[event.src_path].cancel()
-            del self.timers[event.src_path]
+        with self.timers_lock:
+            if event.src_path in self.timers:
+                self.timers[event.src_path].cancel()
+                del self.timers[event.src_path]
 
         src_rel_path = self._get_relative_path(event.src_path)
         dest_rel_path = self._get_relative_path(event.dest_path)
@@ -226,9 +231,10 @@ class LocalFileHandler(FileSystemEventHandler):
         if event.is_directory:
             return
 
-        if event.src_path in self.timers:
-            self.timers[event.src_path].cancel()
-            del self.timers[event.src_path]
+        with self.timers_lock:
+            if event.src_path in self.timers:
+                self.timers[event.src_path].cancel()
+                del self.timers[event.src_path]
 
         rel_path = self._get_relative_path(event.src_path)
         logger.info(f"Event: Deleted - {rel_path}")
@@ -240,9 +246,10 @@ class LocalFileHandler(FileSystemEventHandler):
 
     def stop(self) -> None:
         """Cancels all pending debounce timers."""
-        for timer in self.timers.values():
-            timer.cancel()
-        self.timers.clear()
+        with self.timers_lock:
+            for timer in self.timers.values():
+                timer.cancel()
+            self.timers.clear()
 
 
 class LocalMonitor:

@@ -1,8 +1,7 @@
 # Google Drive Linux Client
 
+## Overview
 This repository contains a minimal Google Drive client for Linux designed to keep a local directory in sync with your cloud storage.
-
-## Strategy
 
 We utilize **Python** to build a **continuously running daemon**. This background process ensures that changes are detected and propagated as they happen, rather than relying on manual execution.
 
@@ -14,7 +13,82 @@ We utilize **Python** to build a **continuously running daemon**. This backgroun
 *   **Authentication**: Secure access using Google OAuth2.
 *   **Selective Sync**: Ability to specify which remote folders should be synced locally, ignoring others.
 
-## Design
+## Installation & Usage
+
+### 1. Install via Virtual Environment (Recommended)
+
+To avoid polluting your system-wide Python environment, it is highly recommended to install the client in an isolated virtual environment.
+
+```bash
+# Navigate to the project root
+cd gdrive_linux
+
+# Create a virtual environment
+python3 -m venv venv
+
+# Activate the environment
+source venv/bin/activate
+
+# Install the package
+pip install .
+```
+
+### 2. Setup Configuration
+
+The application stores configuration and credentials in `~/.gdrive_client`.
+
+1.  **Create the directory**:
+    ```bash
+    mkdir -p ~/.gdrive_client
+    ```
+
+2.  **Credentials**: Download your OAuth 2.0 Client ID JSON from Google Cloud Console, rename it to `credentials.json`, and move it to `~/.gdrive_client/`.
+
+3.  **Config**: Create `~/.gdrive_client/config.json`:
+    ```json
+    {
+        "local_root_path": "~/GoogleDrive",
+        "selective_sync_folders": []
+    }
+    ```
+
+### 3. Run
+
+Start the daemon using the installed console script:
+
+```bash
+gdrive-client
+```
+
+On the first run, it will open a browser to authenticate.
+
+### 4. Systemd Service (Daemon Setup)
+
+To run the client automatically in the background on system boot, you can set up a user-level `systemd` service.
+
+1.  **Create the systemd user directory** if it doesn't exist:
+    ```bash
+    mkdir -p ~/.config/systemd/user
+    ```
+
+2.  **Create the service file** at `~/.config/systemd/user/gdrive_client.service` 
+    as in the template in the repository called `gdrive_client.service.template`. Make sure to point the `ExecStart` variable to the `gdrive-client` script in the environment where the package was installed previously. Rename it to `gdrive_client.service`.
+
+
+
+3.  **Enable and start the service**:
+    ```bash
+    systemctl --user daemon-reload
+    systemctl --user enable gdrive_client.service
+    systemctl --user start gdrive_client.service
+    ```
+
+4.  **Check the status** of your new daemon:
+    ```bash
+    systemctl --user status gdrive_client.service
+    ```
+
+## Architecture
 
 The architecture consists of three main components:
 
