@@ -45,7 +45,8 @@ def authenticate(credentials_file: str, token_file: str) -> Optional[Credentials
         # Save the credentials for the next run
         with open(token_file, "w") as token:
             token.write(creds.to_json())
-            print(f"Authentication successful. Token saved to {token_file}")
+        os.chmod(token_file, 0o600)
+        print(f"Authentication successful. Token saved to {token_file}")
 
     return creds
 
