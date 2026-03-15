@@ -16,11 +16,21 @@ We utilize **Python** to build a **continuously running daemon**. This backgroun
 
 ## Installation & Usage
 
-### 1. Install via pip
+### 1. Install via Virtual Environment (Recommended)
 
-Run the following command in the project root to install the package and dependencies:
+To avoid polluting your system-wide Python environment, it is highly recommended to install the client in an isolated virtual environment.
 
 ```bash
+# Navigate to the project root
+cd gdrive_linux
+
+# Create a virtual environment
+python3 -m venv venv
+
+# Activate the environment
+source venv/bin/activate
+
+# Install the package
 pip install .
 ```
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=Google Drive Client Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Replace /path/to/repo with the actual absolute path to your cloned repository
+# By pointing directly to the venv's bin, systemd runs it in the isolated environment automatically
+ExecStart=/path/to/repo/venv/bin/gdrive-client
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=default.target
