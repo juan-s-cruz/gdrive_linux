@@ -1,8 +1,7 @@
 # Google Drive Linux Client
 
+## Overview
 This repository contains a minimal Google Drive client for Linux designed to keep a local directory in sync with your cloud storage.
-
-## Strategy
 
 We utilize **Python** to build a **continuously running daemon**. This background process ensures that changes are detected and propagated as they happen, rather than relying on manual execution.
 
@@ -63,9 +62,33 @@ gdrive-client
 
 On the first run, it will open a browser to authenticate.
 
-You may want to create a service on boot or send the job to the background.
+### 4. Systemd Service (Daemon Setup)
 
-## Design
+To run the client automatically in the background on system boot, you can set up a user-level `systemd` service.
+
+1.  **Create the systemd user directory** if it doesn't exist:
+    ```bash
+    mkdir -p ~/.config/systemd/user
+    ```
+
+2.  **Create the service file** at `~/.config/systemd/user/gdrive_client.service` 
+    as in the template in the repository called `gdrive_client.service.template`. Make sure to point the `ExecStart` variable to the `gdrive-client` script in the environment where the package was installed previously. Rename it to `gdrive_client.service`.
+
+
+
+3.  **Enable and start the service**:
+    ```bash
+    systemctl --user daemon-reload
+    systemctl --user enable gdrive_client.service
+    systemctl --user start gdrive_client.service
+    ```
+
+4.  **Check the status** of your new daemon:
+    ```bash
+    systemctl --user status gdrive_client.service
+    ```
+
+## Architecture
 
 The architecture consists of three main components:
 
