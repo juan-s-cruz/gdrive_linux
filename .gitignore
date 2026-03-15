@@ -8,3 +8,4 @@ plans_pending/
 *.egg-info
 *.log
 *.txt
+.gemini/
