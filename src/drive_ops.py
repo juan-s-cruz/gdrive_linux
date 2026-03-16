@@ -308,3 +308,58 @@ class DriveOps:
                     f"An error occurred fetching metadata for {file_id}: {error}"
                 )
                 return None
+
+    def get_start_page_token(self) -> Optional[str]:
+        """
+        Retrieves the starting page token for listing changes.
+
+        Returns:
+            str: The start page token, or None on failure.
+        """
+        with self.lock:
+            try:
+                response = self.service.changes().getStartPageToken().execute()
+                return response.get("startPageToken")
+            except HttpError as error:
+                logger.error(f"An error occurred fetching start page token: {error}")
+                return None
+
+    def list_changes(self, start_page_token: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves a list of changes starting from the given token, handling pagination.
+
+        Args:
+            start_page_token (str): The token to start listing changes from.
+
+        Returns:
+            dict: A dictionary containing 'changes' (list) and 'newStartPageToken' (str),
+                  or None on failure.
+        """
+        with self.lock:
+            changes = []
+            page_token = start_page_token
+
+            try:
+                while page_token is not None:
+                    response = (
+                        self.service.changes()
+                        .list(
+                            pageToken=page_token,
+                            spaces="drive",
+                            fields="nextPageToken, newStartPageToken, changes(fileId, removed, file(id, name, mimeType, md5Checksum, parents))",
+                        )
+                        .execute()
+                    )
+
+                    changes.extend(response.get("changes", []))
+
+                    if "nextPageToken" in response:
+                        page_token = response.get("nextPageToken")
+                    else:
+                        return {
+                            "changes": changes,
+                            "newStartPageToken": response.get("newStartPageToken"),
+                        }
+            except HttpError as error:
+                logger.error(f"An error occurred listing changes: {error}")
+                return None
