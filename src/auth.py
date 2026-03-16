@@ -1,9 +1,12 @@
+import logging
 import os.path
 from typing import Optional
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.exceptions import RefreshError
+
+logger = logging.getLogger(__name__)
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/drive"]
@@ -27,16 +30,18 @@ def authenticate(credentials_file: str, token_file: str) -> Optional[Credentials
             try:
                 creds.refresh(Request())
             except RefreshError:
-                print("Token has expired or been revoked. Re-authenticating...")
+                logger.warning(
+                    "Token has expired or been revoked. Re-authenticating..."
+                )
                 creds = None
 
         if not creds:
             if not os.path.exists(credentials_file):
-                print(f"Error: {credentials_file} not found.")
-                print(
-                    "Please download your OAuth 2.0 Client ID JSON from Google Cloud Console"
+                logger.error(
+                    f"Error: {credentials_file} not found. "
+                    "Please download your OAuth 2.0 Client ID JSON from Google Cloud Console "
+                    f"and save it as '{credentials_file}' in this directory."
                 )
-                print(f"and save it as '{credentials_file}' in this directory.")
                 return None
 
             flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
@@ -46,7 +51,7 @@ def authenticate(credentials_file: str, token_file: str) -> Optional[Credentials
         with open(token_file, "w") as token:
             token.write(creds.to_json())
         os.chmod(token_file, 0o600)
-        print(f"Authentication successful. Token saved to {token_file}")
+        logger.info(f"Authentication successful. Token saved to {token_file}")
 
     return creds
 
