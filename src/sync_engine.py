@@ -185,8 +185,10 @@ class SyncEngine:
         if not name:
             return
 
+        is_tracked = self.state_manager.get_path_by_id(file_id) is not None
+
         rel_path = self._construct_relative_path(name, parents)
-        self._handle_remote_move(file_id, rel_path, mime_type)
+        was_moved = self._handle_remote_move(file_id, rel_path, mime_type)
 
         # Check Selective Sync
         if not self.is_path_allowed(rel_path):
@@ -194,7 +196,10 @@ class SyncEngine:
 
         # Handle Folder
         if mime_type == "application/vnd.google-apps.folder":
-            self._sync_folder(rel_path, file_id)
+            # Skip recursive sync for already tracked folders to prevent redundant
+            # API calls and the re-downloading of items that were recently trashed.
+            if not is_tracked and not was_moved:
+                self._sync_folder(rel_path, file_id)
         # Handle File
         else:
             self._sync_file(rel_path, file_id, remote_md5)
@@ -228,7 +233,7 @@ class SyncEngine:
 
     def _handle_remote_move(
         self, file_id: str, rel_path: str, mime_type: Optional[str]
-    ) -> None:
+    ) -> bool:
         """
         Handles local file moving and state updating if a file was moved remotely.
 
@@ -240,10 +245,13 @@ class SyncEngine:
             file_id (str): The Google Drive ID of the file or folder.
             rel_path (str): The newly computed relative path.
             mime_type (Optional[str]): The MIME type of the item, used to check for folders.
+
+        Returns:
+            bool: True if a local move successfully occurred and state was mapped, False otherwise.
         """
         old_rel_path = self.state_manager.get_path_by_id(file_id)
         if not old_rel_path or old_rel_path == rel_path:
-            return
+            return False
 
         old_local_path = os.path.join(
             self.config_manager.get_local_root(), old_rel_path
@@ -286,6 +294,7 @@ class SyncEngine:
                                 child_data.get("md5"),
                             )
                             self.state_manager.remove_file(child_path)
+                return True
 
             except OSError as e:
                 logger.error(
@@ -294,6 +303,8 @@ class SyncEngine:
                 self._delete_local(old_rel_path)
         elif old_allowed and not new_allowed:
             self._delete_local(old_rel_path)
+
+        return False
 
     def _sync_recursive(self, parent_id: str, current_rel_path: str) -> None:
         """

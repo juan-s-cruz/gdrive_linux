@@ -298,7 +298,7 @@ class DriveOps:
                     self.service.files()
                     .get(
                         fileId=file_id,
-                        fields="id, name, mimeType, md5Checksum, parents",
+                        fields="id, name, mimeType, md5Checksum, parents, trashed",
                     )
                     .execute()
                 )
@@ -346,7 +346,7 @@ class DriveOps:
                         .list(
                             pageToken=page_token,
                             spaces="drive",
-                            fields="nextPageToken, newStartPageToken, changes(fileId, removed, file(id, name, mimeType, md5Checksum, parents))",
+                            fields="nextPageToken, newStartPageToken, changes(fileId, removed, file(id, name, mimeType, md5Checksum, parents, trashed))",
                         )
                         .execute()
                     )
