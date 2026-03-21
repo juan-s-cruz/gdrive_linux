@@ -1,7 +1,10 @@
 import json
+import logging
 import os
 import threading
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class StateManager:
@@ -21,21 +24,39 @@ class StateManager:
         self.lock = threading.Lock()
         self.state = self._load_state()
 
-    def _load_state(self) -> Dict[str, Dict[str, str]]:
+        # Initialize in-memory reverse lookup map (file_id -> relative_path)
+        self.id_to_path: Dict[str, str] = {}
+        for path, data in self.state["files"].items():
+            if "id" in data:
+                self.id_to_path[data["id"]] = path
+
+    def _load_state(self) -> Dict[str, Any]:
         """
-        Loads the state from the JSON file.
+        Loads the state from the JSON file and migrates old formats if necessary.
 
         Returns:
-            dict: The loaded state dictionary, or an empty dict if not found/corrupt.
+            dict: The loaded state dictionary containing 'meta' and 'files' keys.
         """
+        default_state = {"meta": {}, "files": {}}
         if not os.path.exists(self.state_path):
-            return {}
+            return default_state
         try:
             with open(self.state_path, "r") as f:
-                return json.load(f)
+                raw_state = json.load(f)
+
+                # Migrate old flat structure if needed
+                if "files" not in raw_state and "meta" not in raw_state:
+                    return {"meta": {}, "files": raw_state}
+
+                # Ensure keys exist for partially formed state
+                if "meta" not in raw_state:
+                    raw_state["meta"] = {}
+                if "files" not in raw_state:
+                    raw_state["files"] = {}
+
+                return raw_state
         except (json.JSONDecodeError, IOError):
-            # Return empty state if file is corrupted or unreadable
-            return {}
+            return default_state
 
     def save_state(self) -> None:
         """Persists the current state to disk."""
@@ -48,38 +69,58 @@ class StateManager:
             with open(self.state_path, "w") as f:
                 json.dump(self.state, f, indent=4)
         except IOError as e:
-            print(f"Error saving state: {e}")
+            logger.error(f"Error saving state: {e}")
 
     def get_file(self, relative_path: str) -> Optional[Dict[str, str]]:
         """Returns the metadata for a given file path."""
         with self.lock:
-            return self.state.get(relative_path)
+            return self.state["files"].get(relative_path)
 
     def set_file(self, relative_path: str, file_id: str, md5: Optional[str]) -> None:
         """Updates or adds a file to the state."""
         with self.lock:
-            self.state[relative_path] = {"id": file_id, "md5": md5}
+            self.state["files"][relative_path] = {"id": file_id, "md5": md5}
+            self.id_to_path[file_id] = relative_path
             self._save_state_unsafe()
 
     def remove_file(self, relative_path: str) -> None:
         """Removes a file from the state."""
         with self.lock:
-            if relative_path in self.state:
-                del self.state[relative_path]
+            if relative_path in self.state["files"]:
+                file_id = self.state["files"][relative_path].get("id")
+                del self.state["files"][relative_path]
+                if file_id and file_id in self.id_to_path:
+                    del self.id_to_path[file_id]
                 self._save_state_unsafe()
 
     def get_all_files(self) -> Dict[str, Dict[str, str]]:
         """Returns a copy of the entire state."""
         with self.lock:
-            return self.state.copy()
+            return self.state["files"].copy()
 
+    def get_start_page_token(self) -> Optional[str]:
+        """Retrieves the saved start page token for the Changes API."""
+        with self.lock:
+            return self.state["meta"].get("startPageToken")
 
-if __name__ == "__main__":
-    # Simple test
-    sm = StateManager("test_state.json")
-    sm.set_file("folder/test.txt", "12345", "abcde")
-    print(f"Retrieved: {sm.get_file('folder/test.txt')}")
-    sm.remove_file("folder/test.txt")
-    if os.path.exists("test_state.json"):
-        os.remove("test_state.json")
-    print("State Manager test complete.")
+    def set_start_page_token(self, token: str) -> None:
+        """Saves the start page token for the Changes API."""
+        with self.lock:
+            self.state["meta"]["startPageToken"] = token
+            self._save_state_unsafe()
+
+    def get_path_by_id(self, file_id: str) -> Optional[str]:
+        """Returns the local relative path for a given remote file ID."""
+        with self.lock:
+            return self.id_to_path.get(file_id)
+
+    def get_selective_sync_rules(self) -> Optional[List[str]]:
+        """Retrieves the last known selective sync configuration from the meta block."""
+        with self.lock:
+            return self.state["meta"].get("selective_sync_folders")
+
+    def set_selective_sync_rules(self, rules: List[str]) -> None:
+        """Saves the current selective sync configuration to the meta block."""
+        with self.lock:
+            self.state["meta"]["selective_sync_folders"] = rules
+            self._save_state_unsafe()

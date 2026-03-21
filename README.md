@@ -12,6 +12,8 @@ We utilize **Python** to build a **continuously running daemon**. This backgroun
 *   **Downloads**: Fetches new or updated files from Google Drive.
 *   **Authentication**: Secure access using Google OAuth2.
 *   **Selective Sync**: Ability to specify which remote folders should be synced locally, ignoring others.
+*   **Delta Syncing**: Efficient remote polling using the Google Drive Changes API to minimize network usage.
+*   **Offline Reconciliation**: Automatically detects and resolves local changes made while the daemon was offline during startup.
 
 ## Installation & Usage
 
@@ -93,7 +95,7 @@ To run the client automatically in the background on system boot, you can set up
 The architecture consists of three main components:
 
 1.  **Local Monitor**: Uses the `watchdog` library to listen for file system events (via `inotify` on Linux). This triggers immediate uploads when files change locally.
-2.  **Remote Poller**: A scheduled task that queries the Google Drive API for changes that occurred on the cloud side to trigger downloads.
+2.  **Remote Poller**: A scheduled task that queries the Google Drive API for changes that occurred on the cloud side to trigger downloads. It utilizes a delta sync approach to only fetch new modifications.
 3.  **Sync Engine**: Handles the logic to resolve paths, manage file IDs, filter content based on selective sync rules, and prevent infinite sync loops (e.g., downloading a file shouldn't trigger an upload event).
 
 ### Tech Stack
