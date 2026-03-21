@@ -465,6 +465,12 @@ class SyncEngine:
         # Remove from state
         self.state_manager.remove_file(rel_path)
 
+        # Prevent child state orphaning if a directory was deleted
+        prefix = rel_path + os.sep
+        for child_path in list(self.state_manager.get_all_files().keys()):
+            if child_path.startswith(prefix):
+                self.state_manager.remove_file(child_path)
+
     def _resolve_conflict(self, local_path: str) -> None:
         """
         Renames a local file to avoid overwriting it during download.
