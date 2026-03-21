@@ -516,6 +516,95 @@ class SyncEngine:
                 report_logger.info(f"  - {path}")
         report_logger.info("===========================")
 
+    def _resolve_remote_path(self, rel_path: str) -> Optional[str]:
+        """
+        Resolves a local relative path to its corresponding Google Drive folder ID.
+
+        Args:
+            rel_path (str): The relative path to resolve.
+
+        Returns:
+            Optional[str]: The Google Drive file ID if found, None otherwise.
+        """
+        if not rel_path or rel_path == ".":
+            return "root"
+
+        parts = rel_path.split(os.sep)
+        current_parent_id = "root"
+
+        for part in parts:
+            if not part:
+                continue
+
+            items = self.drive_ops.list_files(current_parent_id)
+            found_id = None
+            for item in items:
+                if (
+                    item.get("name") == part
+                    and item.get("mimeType") == "application/vnd.google-apps.folder"
+                    and not item.get("trashed")
+                ):
+                    found_id = item.get("id")
+                    break
+
+            if not found_id:
+                return None
+            current_parent_id = found_id
+
+        return current_parent_id
+
+    def _process_config_changes(self) -> None:
+        """
+        Detects changes in selective sync rules, triggering targeted down-syncs for
+        new folders and local deletions for removed folders.
+        """
+        logger.info("Evaluating configuration for selective sync changes...")
+
+        if not hasattr(self.state_manager, "get_selective_sync_rules"):
+            logger.debug("StateManager does not support rule tracking yet.")
+            return
+
+        previous_rules = self.state_manager.get_selective_sync_rules()
+        current_rules = self.selective_sync_folders
+
+        if previous_rules is None:
+            # If no start page token exists, it's a fresh install; _sync_recursive will handle downloads.
+            if self.state_manager.get_start_page_token() is None:
+                if hasattr(self.state_manager, "set_selective_sync_rules"):
+                    self.state_manager.set_selective_sync_rules(current_rules)
+                return
+            else:
+                # Upgrade scenario: state exists but rules weren't tracked yet.
+                # Default to empty list so current rules evaluate as "new".
+                previous_rules = []
+
+        previous_set = set(previous_rules)
+        current_set = set(current_rules)
+
+        removed_folders = previous_set - current_set
+        new_folders = current_set - previous_set
+
+        for folder in removed_folders:
+            logger.info(
+                f"Selective sync folder removed from config: {folder}. Purging local copy."
+            )
+            self._delete_local(folder)
+
+        for folder in new_folders:
+            logger.info(
+                f"New selective sync folder detected: {folder}. Resolving remote path..."
+            )
+            folder_id = self._resolve_remote_path(folder)
+            if folder_id:
+                self._sync_folder(folder, folder_id)
+            else:
+                logger.warning(
+                    f"Could not resolve remote path for {folder}. It may not exist on Drive."
+                )
+
+        if hasattr(self.state_manager, "set_selective_sync_rules"):
+            self.state_manager.set_selective_sync_rules(current_rules)
+
     def scan_local_changes(self) -> None:
         """
         Scans the local directory for offline changes (creations, modifications)
@@ -649,6 +738,7 @@ class SyncEngine:
         Args:
             interval (int): Seconds to wait between sync cycles.
         """
+        self._process_config_changes()
         self.scan_local_changes()
 
         self.monitor.start()

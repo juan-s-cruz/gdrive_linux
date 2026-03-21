@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -113,3 +113,14 @@ class StateManager:
         """Returns the local relative path for a given remote file ID."""
         with self.lock:
             return self.id_to_path.get(file_id)
+
+    def get_selective_sync_rules(self) -> Optional[List[str]]:
+        """Retrieves the last known selective sync configuration from the meta block."""
+        with self.lock:
+            return self.state["meta"].get("selective_sync_folders")
+
+    def set_selective_sync_rules(self, rules: List[str]) -> None:
+        """Saves the current selective sync configuration to the meta block."""
+        with self.lock:
+            self.state["meta"]["selective_sync_folders"] = rules
+            self._save_state_unsafe()
