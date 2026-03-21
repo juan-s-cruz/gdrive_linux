@@ -2,7 +2,7 @@ import logging
 import os
 import shutil
 import time
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Dict, Any
 
 from .config_manager import ConfigManager
 from .state_manager import StateManager
@@ -16,6 +16,10 @@ class SyncEngine:
     """
     Core logic for synchronization, including selective sync filtering,
     polling coordination, and conflict resolution.
+
+    This engine orchestrates the "Down-Sync" process (Drive to Local),
+    periodically polling the Google Drive API for changes and applying
+    them to the local file system while respecting configuration rules.
     """
 
     def __init__(
@@ -106,9 +110,190 @@ class SyncEngine:
         Performs a one-way sync from Drive to Local (Down-Sync).
         """
         logger.info("Starting Down-Sync cycle...")
-        # Start syncing from the root folder
-        self._sync_recursive("root", "")
+
+        saved_token = self.state_manager.get_start_page_token()
+
+        if saved_token is None:
+            logger.info("No Start Page Token found. Performing full recursive sync.")
+            # Start syncing from the root folder
+            self._sync_recursive("root", "")
+
+            new_token = self.drive_ops.get_start_page_token()
+            if new_token:
+                self.state_manager.set_start_page_token(new_token)
+                logger.info("Saved initial Start Page Token.")
+        else:
+            logger.info("Found Start Page Token. Performing delta sync.")
+            self._sync_changes(saved_token)
+
         logger.info("Down-Sync cycle complete.")
+
+    def _sync_changes(self, start_token: str) -> None:
+        """
+        Fetches and processes incremental changes from Google Drive.
+
+        Args:
+            start_token (str): The token to start listing changes from.
+        """
+        response = self.drive_ops.list_changes(start_token)
+        if not response:
+            logger.error("Failed to retrieve changes. Delta sync aborted.")
+            return
+
+        changes = response.get("changes", [])
+        new_token = response.get("newStartPageToken")
+
+        logger.info(f"Retrieved {len(changes)} changes from Drive.")
+
+        for change in changes:
+            self._process_change(change)
+
+        if new_token and new_token != start_token:
+            self.state_manager.set_start_page_token(new_token)
+            logger.info("Updated Start Page Token.")
+
+    def _process_change(self, change: Dict[str, Any]) -> None:
+        """
+        Processes a single change event from the Google Drive API.
+
+        Args:
+            change (Dict[str, Any]): A dictionary containing the change details
+                                     as returned by the Drive API.
+        """
+        file_id = change.get("fileId")
+        if not file_id:
+            return
+
+        removed = change.get("removed", False)
+        file_info = change.get("file", {})
+
+        # Handle Deletions / Trashed
+        if removed or file_info.get("trashed"):
+            local_path = self.state_manager.get_path_by_id(file_id)
+            if local_path:
+                self._delete_local(local_path)
+            return
+
+        if not file_info:
+            return
+
+        name = file_info.get("name")
+        mime_type = file_info.get("mimeType")
+        remote_md5 = file_info.get("md5Checksum")
+        parents = file_info.get("parents", [])
+
+        if not name:
+            return
+
+        rel_path = self._construct_relative_path(name, parents)
+        self._handle_remote_move(file_id, rel_path, mime_type)
+
+        # Check Selective Sync
+        if not self.is_path_allowed(rel_path):
+            return
+
+        # Handle Folder
+        if mime_type == "application/vnd.google-apps.folder":
+            self._sync_folder(rel_path, file_id)
+        # Handle File
+        else:
+            self._sync_file(rel_path, file_id, remote_md5)
+
+    def _construct_relative_path(self, name: str, parents: List[str]) -> str:
+        """
+        Constructs a sanitized relative path using tracked parents.
+
+        Args:
+            name (str): The raw filename from Google Drive.
+            parents (List[str]): A list of parent folder IDs for the file.
+
+        Returns:
+            str: The constructed and sanitized relative path.
+        """
+        name = name.replace("/", "_").replace("\\", "_")
+        if name in (".", ".."):
+            name = f"_{name}_"
+
+        rel_path = None
+        for parent_id in parents:
+            parent_path = self.state_manager.get_path_by_id(parent_id)
+            if parent_path is not None:
+                rel_path = os.path.join(parent_path, name) if parent_path else name
+                break
+
+        if rel_path is None:
+            rel_path = name
+
+        return rel_path
+
+    def _handle_remote_move(
+        self, file_id: str, rel_path: str, mime_type: Optional[str]
+    ) -> None:
+        """
+        Handles local file moving and state updating if a file was moved remotely.
+
+        Compares the new relative path to the previously tracked path in the state.
+        If they differ, performs a local file rename and updates all relevant
+        state mappings to prevent unnecessary re-downloads.
+
+        Args:
+            file_id (str): The Google Drive ID of the file or folder.
+            rel_path (str): The newly computed relative path.
+            mime_type (Optional[str]): The MIME type of the item, used to check for folders.
+        """
+        old_rel_path = self.state_manager.get_path_by_id(file_id)
+        if not old_rel_path or old_rel_path == rel_path:
+            return
+
+        old_local_path = os.path.join(
+            self.config_manager.get_local_root(), old_rel_path
+        )
+        new_local_path = os.path.join(self.config_manager.get_local_root(), rel_path)
+
+        old_allowed = self.is_path_allowed(old_rel_path)
+        new_allowed = self.is_path_allowed(rel_path)
+
+        if old_allowed and new_allowed and os.path.exists(old_local_path):
+            self.monitor.ignore_path(old_local_path)
+            self.monitor.ignore_path(new_local_path)
+
+            dir_name = os.path.dirname(new_local_path)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
+
+            try:
+                os.rename(old_local_path, new_local_path)
+                logger.info(
+                    f"Moved local item (Remote move): {old_rel_path} -> {rel_path}"
+                )
+
+                old_state = self.state_manager.get_file(old_rel_path)
+                old_md5 = old_state.get("md5") if old_state else None
+
+                self.state_manager.remove_file(old_rel_path)
+                self.state_manager.set_file(rel_path, file_id, old_md5)
+
+                if mime_type == "application/vnd.google-apps.folder":
+                    prefix = old_rel_path + os.sep
+                    for child_path, child_data in list(
+                        self.state_manager.get_all_files().items()
+                    ):
+                        if child_path.startswith(prefix):
+                            new_child_path = rel_path + child_path[len(old_rel_path) :]
+                            self.state_manager.set_file(
+                                new_child_path,
+                                child_data["id"],
+                                child_data.get("md5"),
+                            )
+                            self.state_manager.remove_file(child_path)
+
+            except OSError as e:
+                logger.error(
+                    f"Failed to move locally {old_local_path} to {new_local_path}: {e}"
+                )
+                self._delete_local(old_rel_path)
+        elif old_allowed and not new_allowed:
+            self._delete_local(old_rel_path)
 
     def _sync_recursive(self, parent_id: str, current_rel_path: str) -> None:
         """
@@ -305,5 +490,7 @@ class SyncEngine:
             time.sleep(interval)
 
     def stop(self) -> None:
-        """Stops the local monitor."""
+        """
+        Stops the local monitor and gracefully shuts down the sync engine components.
+        """
         self.monitor.stop()

@@ -1,5 +1,4 @@
 *__pycache__/
-tests/
 build/
 .venv/
 .vscode/
@@ -12,3 +11,4 @@ plans_pending/
 *.log
 *.txt
 .gemini/
+.aiexclude
