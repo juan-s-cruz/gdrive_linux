@@ -644,13 +644,13 @@ class TestSyncEngine(unittest.TestCase):
         self.mock_state_manager.get_file.return_value = None
         self.mock_state_manager.get_all_files.return_value = {}
 
-        self.mock_drive_ops.upload_file.return_value = "new_id"
+        self.mock_drive_ops.upload_file.return_value = {"id": "new_id"}
         mock_md5.return_value = "local_md5"
 
         engine.scan_local_changes()
 
         self.mock_drive_ops.upload_file.assert_called_once_with(
-            os.path.join("/tmp/gdrive", "new.txt"), "root"
+            os.path.join("/tmp/gdrive", "new.txt"), "new.txt", "root"
         )
         self.mock_state_manager.set_file.assert_called_once_with(
             "new.txt", "new_id", "local_md5"
