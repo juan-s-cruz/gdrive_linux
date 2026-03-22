@@ -28,14 +28,14 @@ def test_case_a_new_local_file(mock_md5, mock_walk, engine):
     # File is NOT in state
     engine.state_manager.get_file.return_value = None
 
-    engine.drive_ops.upload_file.return_value = "new_id_123"
+    engine.drive_ops.upload_file.return_value = {"id": "new_id_123"}
     mock_md5.return_value = "md5_new"
 
     engine.scan_local_changes()
 
     # Verify it was uploaded and state was updated
     engine.drive_ops.upload_file.assert_called_once_with(
-        "/mock/root/new_file.txt", "root"
+        "/mock/root/new_file.txt", "new_file.txt", "root"
     )
     engine.state_manager.set_file.assert_called_once_with(
         "new_file.txt", "new_id_123", "md5_new"

@@ -659,8 +659,11 @@ class SyncEngine:
                             parent_id = p_state.get("id", "root")
 
                     try:
-                        file_id = self.drive_ops.upload_file(local_path, parent_id)
-                        if file_id:
+                        upload_result = self.drive_ops.upload_file(
+                            local_path, file_name, parent_id
+                        )
+                        if upload_result and "id" in upload_result:
+                            file_id = upload_result.get("id")
                             local_md5 = _calculate_local_md5(local_path)
                             self.state_manager.set_file(rel_path, file_id, local_md5)
                             report["uploaded"].append(rel_path)
