@@ -15,7 +15,8 @@ build/
 .pytest_cache/
 
 ## Workflow folders
-plans_ongoing/
 plans_done/
+plans_ongoing/
 plans_pending/
-known_issues/
+issues_known/
+issues_solved/
