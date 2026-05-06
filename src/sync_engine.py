@@ -8,6 +8,7 @@ from typing import List, Optional, Set, Dict, Any
 from .config_manager import ConfigManager
 from .state_manager import StateManager
 from .drive_ops import DriveOps
+from .filtering import PathFilter
 from .monitor import LocalMonitor
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class SyncEngine:
         config_manager: ConfigManager,
         state_manager: StateManager,
         drive_ops: DriveOps,
+        path_filter: PathFilter,
     ) -> None:
         """
         Initializes the SyncEngine.
@@ -60,13 +62,15 @@ class SyncEngine:
             config_manager (ConfigManager): Instance of ConfigManager.
             state_manager (StateManager): Instance of StateManager.
             drive_ops (DriveOps): Instance of DriveOps.
+            path_filter (PathFilter): Instance for filtering paths.
         """
         self.config_manager = config_manager
         self.state_manager = state_manager
         self.drive_ops = drive_ops
+        self.path_filter = path_filter
         self.selective_sync_folders = self._load_selective_sync_rules()
         self.monitor = LocalMonitor(
-            self.config_manager, self.state_manager, self.drive_ops
+            self.config_manager, self.state_manager, self.drive_ops, self.path_filter
         )
 
     def _load_selective_sync_rules(self) -> List[str]:
@@ -197,6 +201,11 @@ class SyncEngine:
         is_tracked = self.state_manager.get_path_by_id(file_id) is not None
 
         rel_path = self._construct_relative_path(name, parents)
+        local_path = os.path.join(self.config_manager.get_local_root(), rel_path)
+
+        if self.path_filter.should_ignore(rel_path, local_path, mime_type=mime_type):
+            return
+
         was_moved = self._handle_remote_move(file_id, rel_path, mime_type)
 
         if not self.is_path_allowed(rel_path):
@@ -336,6 +345,11 @@ class SyncEngine:
             else:
                 rel_path = name
 
+            local_path = os.path.join(self.config_manager.get_local_root(), rel_path)
+            if self.path_filter.should_ignore(
+                rel_path, local_path, mime_type=mime_type
+            ):
+                continue
             if not self.is_path_allowed(rel_path):
                 continue
 
@@ -641,13 +655,16 @@ class SyncEngine:
 
             for file_name in files:
                 rel_path = os.path.join(rel_dir, file_name) if rel_dir else file_name
+                local_path = os.path.join(local_root, rel_path)
+
+                if self.path_filter.should_ignore(rel_path, local_path):
+                    continue
 
                 if not self.is_path_allowed(rel_path):
                     continue
 
                 seen_local_paths.add(rel_path)
 
-                local_path = os.path.join(local_root, rel_path)
                 state_entry = self.state_manager.get_file(rel_path)
 
                 if not state_entry:

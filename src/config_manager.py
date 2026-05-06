@@ -60,6 +60,25 @@ class ConfigManager:
         """Returns the list of folders enabled for selective sync."""
         return self.config.get("selective_sync_folders", [])
 
+    def get_ignore_patterns(self) -> List[str]:
+        """
+        Returns the list of file patterns to ignore.
+        Provides a default list of common temporary/system files if not specified.
+        """
+        return self.config.get(
+            "ignore_patterns",
+            [
+                "*.tmp",
+                "*.part",
+                "*.swp",
+                ".*.swp",
+                "~$*",
+                ".DS_Store",
+                "Thumbs.db",
+                "*.crdownload",
+            ],
+        )
+
 
 if __name__ == "__main__":
     try:
