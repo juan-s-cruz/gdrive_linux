@@ -288,25 +288,17 @@ class SyncEngine:
                     f"Moved local item (Remote move): {old_rel_path} -> {rel_path}"
                 )
 
-                old_state = self.state_manager.get_file(old_rel_path)
-                old_md5 = old_state.get("md5") if old_state else None
-
-                self.state_manager.remove_file(old_rel_path)
-                self.state_manager.set_file(rel_path, file_id, old_md5)
-
-                if mime_type == "application/vnd.google-apps.folder":
-                    prefix = old_rel_path + os.sep
-                    for child_path, child_data in list(
-                        self.state_manager.get_all_files().items()
-                    ):
-                        if child_path.startswith(prefix):
-                            new_child_path = rel_path + child_path[len(old_rel_path) :]
-                            self.state_manager.set_file(
-                                new_child_path,
-                                child_data["id"],
-                                child_data.get("md5"),
-                            )
-                            self.state_manager.remove_file(child_path)
+                # Use the new centralized method to recursively update state
+                is_folder = mime_type == "application/vnd.google-apps.folder"
+                state_entry = self.state_manager.get_file(old_rel_path)
+                md5 = state_entry.get("md5") if state_entry else None
+                self.state_manager.move_path_recursive(
+                    old_rel_path=old_rel_path,
+                    new_rel_path=rel_path,
+                    file_id=file_id,
+                    md5=md5,
+                    is_folder=is_folder,
+                )
                 return True
 
             except OSError as e:
@@ -461,12 +453,7 @@ class SyncEngine:
             except OSError as e:
                 logger.error(f"Failed to delete {local_path}: {e}")
 
-        self.state_manager.remove_file(rel_path)
-
-        prefix = rel_path + os.sep
-        for child_path in list(self.state_manager.get_all_files().keys()):
-            if child_path.startswith(prefix):
-                self.state_manager.remove_file(child_path)
+        self.state_manager.remove_path_recursive(rel_path)
 
     def _resolve_conflict(self, local_path: str) -> None:
         """
