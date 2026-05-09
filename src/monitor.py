@@ -182,14 +182,6 @@ class LocalFileHandler(FileSystemEventHandler):
         if event.src_path in self.ignored_paths or self._should_ignore(event.dest_path):
             return
 
-        if event.is_directory:
-            return
-
-        with self.timers_lock:
-            if event.src_path in self.timers:
-                self.timers[event.src_path].cancel()
-                del self.timers[event.src_path]
-
         src_rel_path = self._get_relative_path(event.src_path)
         dest_rel_path = self._get_relative_path(event.dest_path)
         logger.info(f"Event: Moved - {src_rel_path} to {dest_rel_path}")
@@ -202,11 +194,15 @@ class LocalFileHandler(FileSystemEventHandler):
 
             self.drive_ops.move_file(file_id, new_name, new_parent_id)
 
-            # Update state: remove old path, add new path
-            self.state_manager.remove_file(src_rel_path)
-            self.state_manager.set_file(dest_rel_path, file_id, entry["md5"])
+            # Use the new centralized method for recursive state updates
+            self.state_manager.move_path_recursive(
+                old_rel_path=src_rel_path,
+                new_rel_path=dest_rel_path,
+                file_id=file_id,
+                md5=entry.get("md5"),
+                is_folder=event.is_directory,
+            )
         else:
-            # Source not in state (e.g. was ignored temp file), treat as new upload
             parent_id = self._resolve_parent_id(dest_rel_path)
             name = os.path.basename(dest_rel_path)
             mime_type, _ = mimetypes.guess_type(event.dest_path)
