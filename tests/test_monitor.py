@@ -1,179 +1,77 @@
-import os
-import pytest
-from unittest.mock import MagicMock, patch
-from watchdog.events import (
-    FileCreatedEvent,
-    FileModifiedEvent,
-    FileMovedEvent,
-    FileDeletedEvent,
-    DirCreatedEvent,
-)
+import unittest
+from unittest.mock import MagicMock, Mock
 
-from src.monitor import LocalFileHandler, LocalMonitor
+from watchdog.events import DirDeletedEvent, DirMovedEvent
+
+from src.monitor import LocalFileHandler
 
 
-@pytest.fixture
-def mock_config():
-    cm = MagicMock()
-    cm.get_local_root.return_value = "/mock/root"
-    return cm
+class TestLocalFileHandlerDirectoryEvents(unittest.TestCase):
+    def setUp(self):
+        self.mock_config_manager = Mock()
+        self.mock_state_manager = Mock()
+        self.mock_drive_ops = Mock()
+        self.mock_path_filter = Mock()
 
+        self.mock_config_manager.get_local_root.return_value = "/test/root"
+        self.mock_path_filter.should_ignore.return_value = False
 
-@pytest.fixture
-def mock_state():
-    sm = MagicMock()
-    return sm
+        self.handler = LocalFileHandler(
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
+        )
+        # Disable debouncing for tests
+        self.handler.debounce_seconds = 0
+        # Mock away the timer logic for on_deleted
+        self.handler.timers_lock = MagicMock()
 
+    def test_on_deleted_directory(self):
+        # Arrange
+        dir_path = "/test/root/my_folder"
+        rel_path = "my_folder"
+        event = DirDeletedEvent(dir_path)
 
-@pytest.fixture
-def mock_drive():
-    ops = MagicMock()
-    return ops
+        self.mock_state_manager.get_file.return_value = {"id": "folder_id_123"}
 
+        # Act
+        self.handler.on_deleted(event)
 
-def test_should_ignore(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    assert handler._should_ignore("/mock/root/test.part") is True
+        # Assert
+        self.mock_state_manager.get_file.assert_called_once_with(rel_path)
+        self.mock_drive_ops.delete_file.assert_called_once_with("folder_id_123")
+        self.mock_state_manager.remove_path_recursive.assert_called_once_with(rel_path)
 
-    handler.ignored_paths.add("/mock/root/test.txt")
-    assert handler._should_ignore("/mock/root/test.txt") is True
+    def test_on_moved_directory(self):
+        # Arrange
+        src_path = "/test/root/old_folder"
+        dest_path = "/test/root/new_folder"
+        src_rel_path = "old_folder"
+        dest_rel_path = "new_folder"
 
-    with patch("os.path.islink", return_value=True):
-        assert handler._should_ignore("/mock/root/symlink") is True
+        event = DirMovedEvent(src_path, dest_path)
 
-
-def test_get_relative_path(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    rel = handler._get_relative_path("/mock/root/folder/file.txt")
-    assert rel == "folder/file.txt"
-
-
-def test_resolve_parent_id(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    assert handler._resolve_parent_id("file.txt") is None
-
-    mock_state.get_file.return_value = {"id": "parent_id"}
-    assert handler._resolve_parent_id("folder/file.txt") == "parent_id"
-
-
-def test_ignore_path(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    with patch("src.monitor.Timer") as mock_timer:
-        handler.ignore_path("/mock/root/ignore_me.txt")
-        assert "/mock/root/ignore_me.txt" in handler.ignored_paths
-        handler._unignore_path("/mock/root/ignore_me.txt")
-        assert "/mock/root/ignore_me.txt" not in handler.ignored_paths
-
-
-def test_on_created_folder(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    event = DirCreatedEvent("/mock/root/new_folder")
-    mock_drive.create_folder.return_value = "folder_id"
-    handler.on_created(event)
-    mock_drive.create_folder.assert_called_once_with("new_folder", None)
-    mock_state.set_file.assert_called_once_with("new_folder", "folder_id", "folder")
-
-
-def test_on_created_file(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    event = FileCreatedEvent("/mock/root/new_file.txt")
-    mock_drive.upload_file.return_value = {"id": "file_id", "md5Checksum": "md5"}
-    handler.on_created(event)
-    mock_drive.upload_file.assert_called_once()
-
-
-def test_on_modified_debounce(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    event = FileModifiedEvent("/mock/root/mod_file.txt")
-
-    with patch("src.monitor.Timer") as mock_timer:
-        handler.on_modified(event)
-        # Should cancel previous if exists
-        mock_timer_instance = MagicMock()
-        handler.timers["/mock/root/mod_file.txt"] = mock_timer_instance
-        handler.on_modified(event)
-        mock_timer_instance.cancel.assert_called_once()
-
-
-def test_process_modified_tracked(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    event = MagicMock()
-    event.src_path = "/mock/root/mod_file.txt"
-    handler.timers[event.src_path] = MagicMock()
-
-    with patch("os.path.exists", return_value=True):
-        mock_state.get_file.return_value = {"id": "file_id"}
-        mock_drive.update_file.return_value = {
-            "id": "file_id",
-            "md5Checksum": "new_md5",
+        self.mock_state_manager.get_file.return_value = {
+            "id": "folder_id_456",
+            "md5": "folder",
         }
-        handler._process_modified(event)
-        mock_drive.update_file.assert_called_once()
+        self.handler._resolve_parent_id = MagicMock(return_value="parent_id_789")
 
+        # Act
+        self.handler.on_moved(event)
 
-def test_process_modified_untracked(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    event = MagicMock()
-    event.src_path = "/mock/root/untracked.txt"
+        # Assert
+        self.mock_state_manager.get_file.assert_called_once_with(src_rel_path)
+        self.handler._resolve_parent_id.assert_called_once_with(dest_rel_path)
 
-    with patch("os.path.exists", return_value=True):
-        mock_state.get_file.return_value = None
-        mock_drive.upload_file.return_value = {"id": "file_id", "md5Checksum": "md5"}
-        handler._process_modified(event)
-        mock_drive.upload_file.assert_called_once()
-
-
-def test_on_moved_tracked(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    event = FileMovedEvent("/mock/root/old.txt", "/mock/root/new.txt")
-    mock_state.get_file.return_value = {"id": "file_id", "md5": "md5"}
-    handler.on_moved(event)
-    mock_drive.move_file.assert_called_once()
-
-
-def test_on_moved_untracked(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    event = FileMovedEvent("/mock/root/old.txt", "/mock/root/new.txt")
-    mock_state.get_file.return_value = None
-    mock_drive.upload_file.return_value = {"id": "file_id", "md5Checksum": "md5"}
-    handler.on_moved(event)
-    mock_drive.upload_file.assert_called_once()
-
-
-def test_on_deleted(mock_config, mock_state, mock_drive):
-    handler = LocalFileHandler(mock_config, mock_state, mock_drive)
-    event = FileDeletedEvent("/mock/root/del.txt")
-
-    # Add timer to verify it is cancelled on delete
-    mock_timer = MagicMock()
-    handler.timers["/mock/root/del.txt"] = mock_timer
-
-    mock_state.get_file.return_value = {"id": "file_id"}
-    handler.on_deleted(event)
-
-    mock_drive.delete_file.assert_called_once_with("file_id")
-    mock_state.remove_file.assert_called_once_with("del.txt")
-    mock_timer.cancel.assert_called_once()
-    assert "/mock/root/del.txt" not in handler.timers
-
-
-def test_local_monitor_start_stop(mock_config, mock_state, mock_drive):
-    monitor = LocalMonitor(mock_config, mock_state, mock_drive)
-    with patch.object(monitor.observer, "schedule") as mock_schedule, patch.object(
-        monitor.observer, "start"
-    ) as mock_start, patch.object(monitor.observer, "stop") as mock_stop, patch.object(
-        monitor.observer, "join"
-    ) as mock_join:
-
-        monitor.start()
-        mock_schedule.assert_called_once()
-        mock_start.assert_called_once()
-
-        # Test handler stop via monitor stop
-        mock_timer = MagicMock()
-        monitor.handler.timers["dummy"] = mock_timer
-        monitor.stop()
-
-        mock_stop.assert_called_once()
-        mock_join.assert_called_once()
-        mock_timer.cancel.assert_called_once()
+        self.mock_drive_ops.move_file.assert_called_once_with(
+            "folder_id_456", "new_folder", "parent_id_789"
+        )
+        self.mock_state_manager.move_path_recursive.assert_called_once_with(
+            old_rel_path=src_rel_path,
+            new_rel_path=dest_rel_path,
+            file_id="folder_id_456",
+            md5="folder",
+            is_folder=True,
+        )

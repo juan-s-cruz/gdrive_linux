@@ -12,6 +12,8 @@ class TestSyncEngine(unittest.TestCase):
         self.mock_state_manager = MagicMock()
         self.mock_state_manager.get_start_page_token.return_value = None
         self.mock_drive_ops = MagicMock()
+        self.mock_path_filter = MagicMock()
+        self.mock_path_filter.should_ignore.return_value = False
 
         # Mock LocalMonitor to prevent actual thread creation and verify ignore calls
         self.mock_monitor_patcher = patch("src.sync_engine.LocalMonitor")
@@ -28,10 +30,6 @@ class TestSyncEngine(unittest.TestCase):
     def tearDown(self):
         self.mock_monitor_patcher.stop()
 
-        engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
-        )
-
     def test_is_path_allowed_with_rules(self):
         """Test selective sync filtering logic with specific rules."""
         # Setup: Allow 'Photos' and 'Documents/Work'
@@ -41,7 +39,10 @@ class TestSyncEngine(unittest.TestCase):
         ]
 
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
 
         # 1. Exact matches
@@ -66,7 +67,10 @@ class TestSyncEngine(unittest.TestCase):
         self.mock_config_manager.get_selective_sync_folders.return_value = ["Folder/"]
 
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
 
         # Should handle missing trailing slash in check
@@ -77,7 +81,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_should_download(self):
         """Test logic for determining if a file should be downloaded."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
 
         # Case 1: Local file does not exist -> Should download
@@ -103,7 +110,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_sync_flow(self):
         """Test the recursive sync flow (folders and files)."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
 
         # Mock list_files to return:
@@ -161,7 +171,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_sync_with_token(self):
         """Test that sync uses delta sync when a token is available."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_state_manager.get_start_page_token.return_value = "token_456"
         self.mock_drive_ops.list_changes.return_value = {
@@ -180,7 +193,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_sync_changes_addition(self):
         """Test processing of a new file addition during delta sync."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_drive_ops.list_changes.return_value = {
             "changes": [
@@ -215,7 +231,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_sync_changes_deletion(self):
         """Test processing of a file deletion during delta sync."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_drive_ops.list_changes.return_value = {
             "changes": [{"fileId": "file1", "removed": True}],
@@ -233,7 +252,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_sync_changes_trashed(self):
         """Test processing of a file that is trashed (removed=False, trashed=True) during delta sync."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_drive_ops.list_changes.return_value = {
             "changes": [
@@ -257,7 +279,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_sync_changes_move(self):
         """Test processing of a file move/rename during delta sync."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_drive_ops.list_changes.return_value = {
             "changes": [
@@ -297,16 +322,22 @@ class TestSyncEngine(unittest.TestCase):
                 os.path.join("/tmp/gdrive", "old_doc.txt"),
                 os.path.join("/tmp/gdrive", "renamed_doc.txt"),
             )
-            self.mock_state_manager.remove_file.assert_called_once_with("old_doc.txt")
-            self.mock_state_manager.set_file.assert_any_call(
-                "renamed_doc.txt", "file1", "md5"
+            self.mock_state_manager.move_path_recursive.assert_called_once_with(
+                old_rel_path="old_doc.txt",
+                new_rel_path="renamed_doc.txt",
+                file_id="file1",
+                md5="md5",
+                is_folder=False,
             )
             mock_sync_file.assert_called_once_with("renamed_doc.txt", "file1", "md5")
 
     def test_sync_changes_folder_move_skips_recursion(self):
         """Test that a moved folder skips recursive sync if successfully renamed."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_drive_ops.list_changes.return_value = {
             "changes": [
@@ -356,7 +387,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_sync_changes_tracked_folder_skips_recursion(self):
         """Test that an already tracked folder that was not moved skips recursive sync."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_drive_ops.list_changes.return_value = {
             "changes": [
@@ -384,7 +418,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_sync_changes_new_folder_recursions(self):
         """Test that an untracked (new) folder triggers recursive sync."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_drive_ops.list_changes.return_value = {
             "changes": [
@@ -414,7 +451,10 @@ class TestSyncEngine(unittest.TestCase):
         self.mock_config_manager.get_selective_sync_folders.return_value = ["Allowed"]
 
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
 
         # Mock list_files: Root contains one allowed folder and one ignored folder
@@ -449,7 +489,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_download_failure_does_not_update_state(self):
         """Test that state is not updated if download fails."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
 
         self.mock_drive_ops.list_files.return_value = [
@@ -476,7 +519,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_start_loop(self):
         """Test that start() runs the loop and handles exceptions."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
 
         # Mock sync to do nothing, and sleep to raise exception to break the infinite loop
@@ -492,7 +538,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_handle_deletions_removes_synced_file(self):
         """Test that local files missing remotely are deleted if they are tracked in state."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
 
         current_rel_path = "folder"
@@ -519,7 +568,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_handle_deletions_ignores_new_local_file(self):
         """Test that new local files (not in state) are NOT deleted."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
 
         current_rel_path = ""
@@ -539,7 +591,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_resolve_conflict_renames_file(self):
         """Test that conflict resolution renames the local file."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
 
         local_path = "/tmp/gdrive/conflict.txt"
@@ -560,7 +615,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_sync_file_triggers_conflict_resolution(self):
         """Test that _sync_file detects conflicts and calls resolution."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
 
         rel_path = "conflict.txt"
@@ -582,7 +640,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_delete_local_file(self):
         """Test _delete_local for a file."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         rel_path = "file.txt"
         local_path = "/tmp/gdrive/file.txt"
@@ -594,13 +655,18 @@ class TestSyncEngine(unittest.TestCase):
             engine._delete_local(rel_path)
 
             mock_remove.assert_called_once_with(local_path)
-            self.mock_state_manager.remove_file.assert_called_once_with(rel_path)
+            self.mock_state_manager.remove_path_recursive.assert_called_once_with(
+                rel_path
+            )
             engine.monitor.ignore_path.assert_called_with(local_path)
 
     def test_delete_local_folder(self):
         """Test _delete_local for a folder."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         rel_path = "folder"
         local_path = "/tmp/gdrive/folder"
@@ -620,16 +686,10 @@ class TestSyncEngine(unittest.TestCase):
             engine._delete_local(rel_path)
 
             mock_rmtree.assert_called_once_with(local_path)
-            self.mock_state_manager.remove_file.assert_any_call(rel_path)
-            self.mock_state_manager.remove_file.assert_any_call("folder/child1.txt")
-            self.mock_state_manager.remove_file.assert_any_call("folder/sub/child2.txt")
+            self.mock_state_manager.remove_path_recursive.assert_called_once_with(
+                rel_path
+            )
             engine.monitor.ignore_path.assert_called_with(local_path)
-
-            # Ensure folder_other wasn't deleted
-            calls = [
-                c.args[0] for c in self.mock_state_manager.remove_file.call_args_list
-            ]
-            self.assertNotIn("folder_other", calls)
 
     @patch("src.sync_engine.os.walk")
     @patch("src.sync_engine._calculate_local_md5")
@@ -637,7 +697,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_scan_local_changes_new_file(self, mock_report, mock_md5, mock_walk):
         """Test Case A: New local file uploaded during startup scan."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         mock_walk.return_value = [("/tmp/gdrive", [], ["new.txt"])]
 
@@ -668,7 +731,10 @@ class TestSyncEngine(unittest.TestCase):
     ):
         """Test Case B/C1: Local file modified, remote unchanged. Upload changes."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         mock_walk.return_value = [("/tmp/gdrive", [], ["mod.txt"])]
 
@@ -696,7 +762,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_scan_local_changes_missing_local(self, mock_report, mock_walk):
         """Test Phase 4: Missing local file is conservatively restored."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         mock_walk.return_value = [("/tmp/gdrive", [], [])]  # Empty local directory
 
@@ -738,7 +807,10 @@ class TestSyncEngine(unittest.TestCase):
     ):
         """Test Sub-case C2: Conflict detected during scan."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         mock_walk.return_value = [("/tmp/gdrive", [], ["conflict.txt"])]
 
@@ -766,10 +838,85 @@ class TestSyncEngine(unittest.TestCase):
         report_dict = mock_report.call_args[0][0]
         self.assertIn("conflict.txt", report_dict["conflicts"])
 
+    def test_scan_local_changes_skips_ignored_file(self):
+        """Test that scan_local_changes skips files ignored by PathFilter."""
+        engine = SyncEngine(
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
+        )
+
+        # Configure the filter to ignore '.tmp' files
+        def should_ignore_side_effect(rel_path, abs_path, mime_type=None):
+            return rel_path.endswith(".tmp")
+
+        self.mock_path_filter.should_ignore.side_effect = should_ignore_side_effect
+
+        with patch("src.sync_engine.os.walk") as mock_walk:
+            mock_walk.return_value = [("/tmp/gdrive", [], ["good.txt", "ignored.tmp"])]
+            self.mock_state_manager.get_file.return_value = None
+            self.mock_state_manager.get_all_files.return_value = {}
+
+            engine.scan_local_changes()
+
+            # Verify should_ignore was called for both
+            self.mock_path_filter.should_ignore.assert_any_call(
+                "good.txt", "/tmp/gdrive/good.txt"
+            )
+            self.mock_path_filter.should_ignore.assert_any_call(
+                "ignored.tmp", "/tmp/gdrive/ignored.tmp"
+            )
+
+            # Verify only the non-ignored file was processed
+            self.mock_drive_ops.upload_file.assert_called_once()
+            self.assertEqual(
+                self.mock_drive_ops.upload_file.call_args[0][1], "good.txt"
+            )
+
+    def test_sync_recursive_skips_ignored_remote_file(self):
+        """Test that recursive sync skips remote files ignored by PathFilter."""
+        engine = SyncEngine(
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
+        )
+
+        # Mock list_files to return one normal file and one Google Doc
+        self.mock_drive_ops.list_files.return_value = [
+            {
+                "id": "f1",
+                "name": "doc.txt",
+                "mimeType": "text/plain",
+                "md5Checksum": "abc",
+            },
+            {
+                "id": "f2",
+                "name": "GDoc",
+                "mimeType": "application/vnd.google-apps.document",
+            },
+        ]
+
+        # Configure the filter to ignore only the Google Doc
+        def should_ignore_side_effect(rel_path, abs_path, mime_type=None):
+            return mime_type == "application/vnd.google-apps.document"
+
+        self.mock_path_filter.should_ignore.side_effect = should_ignore_side_effect
+
+        with patch.object(engine, "_sync_file") as mock_sync_file:
+            engine._sync_recursive("root", "")
+
+            # Verify only the normal file was synced
+            mock_sync_file.assert_called_once_with("doc.txt", "f1", "abc")
+
     def test_resolve_remote_path(self):
         """Test resolving a nested path to a Drive folder ID."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_drive_ops.list_files.side_effect = [
             [
@@ -799,7 +946,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_process_config_changes_new_folder(self):
         """Test targeted sync for a newly added selective sync folder."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_state_manager.get_selective_sync_rules.return_value = ["OldFolder"]
         engine.selective_sync_folders = ["OldFolder", "NewFolder"]
@@ -824,7 +974,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_process_config_changes_removed_folder(self):
         """Test local deletion for a removed selective sync folder."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_state_manager.get_selective_sync_rules.return_value = [
             "OldFolder",
@@ -857,7 +1010,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_stop(self):
         """Test that the engine properly stops the monitor."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         engine.stop()
         engine.monitor.stop.assert_called_once()
@@ -865,7 +1021,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_construct_relative_path_no_parents(self):
         """Test relative path construction when parents are empty or not tracked."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_state_manager.get_path_by_id.return_value = None
         rel = engine._construct_relative_path("file.txt", [])
@@ -877,7 +1036,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_process_change_missing_info(self):
         """Test _process_change handles incomplete change payloads safely."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         # Missing fileId
         engine._process_change({})
@@ -889,7 +1051,10 @@ class TestSyncEngine(unittest.TestCase):
     def test_handle_remote_move_oserror(self):
         """Test that a local rename failure falls back to deletion."""
         engine = SyncEngine(
-            self.mock_config_manager, self.mock_state_manager, self.mock_drive_ops
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
         )
         self.mock_state_manager.get_path_by_id.return_value = "old_path"
 

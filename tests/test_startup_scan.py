@@ -6,7 +6,14 @@ from src.sync_engine import SyncEngine
 
 
 @pytest.fixture
-def engine():
+def mock_path_filter():
+    pf = MagicMock()
+    pf.should_ignore.return_value = False
+    return pf
+
+
+@pytest.fixture
+def engine(mock_path_filter):
     config_manager = MagicMock()
     config_manager.get_local_root.return_value = "/mock/root"
     config_manager.get_selective_sync_folders.return_value = []
@@ -14,7 +21,7 @@ def engine():
     state_manager = MagicMock()
     drive_ops = MagicMock()
 
-    engine = SyncEngine(config_manager, state_manager, drive_ops)
+    engine = SyncEngine(config_manager, state_manager, drive_ops, mock_path_filter)
     # Prevent LocalMonitor from actually starting/binding in tests
     engine.monitor = MagicMock()
     return engine
@@ -22,12 +29,12 @@ def engine():
 
 @patch("os.walk")
 @patch("src.sync_engine._calculate_local_md5")
-def test_case_a_new_local_file(mock_md5, mock_walk, engine):
+def test_case_a_new_local_file(mock_md5, mock_walk, engine, mock_path_filter):
     # Simulate finding one new file
     mock_walk.return_value = [("/mock/root", [], ["new_file.txt"])]
     # File is NOT in state
     engine.state_manager.get_file.return_value = None
-
+    mock_path_filter.should_ignore.return_value = False  # Ensure not ignored by filter
     engine.drive_ops.upload_file.return_value = {"id": "new_id_123"}
     mock_md5.return_value = "md5_new"
 
@@ -44,7 +51,9 @@ def test_case_a_new_local_file(mock_md5, mock_walk, engine):
 
 @patch("os.walk")
 @patch("src.sync_engine._calculate_local_md5")
-def test_case_c1_updated_local_unchanged_remote(mock_md5, mock_walk, engine):
+def test_case_c1_updated_local_unchanged_remote(
+    mock_md5, mock_walk, engine, mock_path_filter
+):
     # Simulate finding an existing file
     mock_walk.return_value = [("/mock/root", [], ["updated_file.txt"])]
     engine.state_manager.get_file.return_value = {
@@ -52,7 +61,7 @@ def test_case_c1_updated_local_unchanged_remote(mock_md5, mock_walk, engine):
         "md5": "md5_state",
     }
 
-    mock_md5.return_value = "md5_local_new"
+    mock_md5.return_value = "md5_local_new"  # Local MD5 is different
     engine._get_remote_md5 = MagicMock(return_value="md5_state")
 
     engine.scan_local_changes()
@@ -68,7 +77,7 @@ def test_case_c1_updated_local_unchanged_remote(mock_md5, mock_walk, engine):
 
 @patch("os.walk")
 @patch("src.sync_engine._calculate_local_md5")
-def test_case_c2_conflict_changed_both(mock_md5, mock_walk, engine):
+def test_case_c2_conflict_changed_both(mock_md5, mock_walk, engine, mock_path_filter):
     # Simulate finding a file
     mock_walk.return_value = [("/mock/root", [], ["conflict_file.txt"])]
     engine.state_manager.get_file.return_value = {
