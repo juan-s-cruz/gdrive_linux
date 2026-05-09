@@ -8,8 +8,8 @@ We utilize **Python** to build a **continuously running daemon**. This backgroun
 ## Functionality
 
 *   **Two-way Sync**: Keeps local and remote folders identical.
-*   **Uploads**: Automatically uploads files created or modified locally.
-*   **Downloads**: Fetches new or updated files from Google Drive.
+*   **Local Change Handling**: Propagates local creations, modifications, moves, and deletions of files and directories to Google Drive.
+*   **Downloads**: Fetches remote creations, updates, and moves from Google Drive.
 *   **Authentication**: Secure access using Google OAuth2.
 *   **Selective Sync**: Ability to specify which remote folders should be synced locally, ignoring others.
 *   **Delta Syncing**: Efficient remote polling using the Google Drive Changes API to minimize network usage.
