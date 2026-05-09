@@ -228,21 +228,19 @@ class LocalFileHandler(FileSystemEventHandler):
         if self._should_ignore(event.src_path):
             return
 
-        if event.is_directory:
-            return
-
         with self.timers_lock:
             if event.src_path in self.timers:
                 self.timers[event.src_path].cancel()
                 del self.timers[event.src_path]
 
         rel_path = self._get_relative_path(event.src_path)
-        logger.info(f"Event: Deleted - {rel_path}")
+        log_msg = "Folder" if event.is_directory else "File"
+        logger.info(f"Event: Deleted {log_msg} - {rel_path}")
 
         entry = self.state_manager.get_file(rel_path)
         if entry:
             self.drive_ops.delete_file(entry["id"])
-            self.state_manager.remove_file(rel_path)
+            self.state_manager.remove_path_recursive(rel_path)
 
     def stop(self) -> None:
         """Cancels all pending debounce timers."""
