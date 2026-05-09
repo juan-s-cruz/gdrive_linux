@@ -8,6 +8,7 @@ from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from watchdog.observers import Observer
 
 from .config_manager import ConfigManager
+from .filtering import PathFilter
 from .state_manager import StateManager
 from .drive_ops import DriveOps
 
@@ -25,36 +26,33 @@ class LocalFileHandler(FileSystemEventHandler):
         config_manager: ConfigManager,
         state_manager: StateManager,
         drive_ops: DriveOps,
+        path_filter: PathFilter,
     ):
         """
         Args:
             config_manager: Instance of ConfigManager.
             state_manager: Instance of StateManager.
             drive_ops: Instance of DriveOps.
+            path_filter: Instance of PathFilter for ignoring files.
         """
         self.config_manager = config_manager
         self.state_manager = state_manager
         self.drive_ops = drive_ops
+        self.path_filter = path_filter
         self.local_root = self.config_manager.get_local_root()
         self.timers: Dict[str, Timer] = {}
         self.timers_lock = threading.Lock()
         self.debounce_seconds = 1.0
         self.ignored_paths = set()
-        self.ignored_extensions = {
-            ".part",
-            ".tmp",
-            ".crdownload",
-            ".swp",
-            ".goutputstream",
-        }
 
     def _should_ignore(self, path: str) -> bool:
-        """Checks if a path should be ignored based on extension or explicit ignore list."""
-        if os.path.islink(path):
+        """Checks if a path should be ignored based on the central path filter."""
+        rel_path = self._get_relative_path(path)
+        if self.path_filter.should_ignore(rel_path, path):
             return True
         if path in self.ignored_paths:
             return True
-        return os.path.splitext(path)[1] in self.ignored_extensions
+        return False
 
     def _get_relative_path(self, abs_path: str) -> str:
         """Converts an absolute path to a path relative to the local root."""
@@ -264,15 +262,19 @@ class LocalMonitor:
         config_manager: ConfigManager,
         state_manager: StateManager,
         drive_ops: DriveOps,
+        path_filter: PathFilter,
     ):
         """
         Args:
             config_manager: Instance of ConfigManager.
             state_manager: Instance of StateManager.
             drive_ops: Instance of DriveOps.
+            path_filter: Instance of PathFilter for ignoring files.
         """
         self.config_manager = config_manager
-        self.handler = LocalFileHandler(config_manager, state_manager, drive_ops)
+        self.handler = LocalFileHandler(
+            config_manager, state_manager, drive_ops, path_filter
+        )
         self.observer = Observer()
 
     def start(self) -> None:

@@ -6,6 +6,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Any
 
 from src.config_manager import ConfigManager
+from src.filtering import PathFilter
 from src.drive_ops import DriveOps
 from src.drive_service import DriveService
 from src.state_manager import StateManager
@@ -60,6 +61,9 @@ def main() -> None:
         logger.error(f"Failed to load configuration: {e}")
         sys.exit(1)
 
+    # Create PathFilter
+    path_filter = PathFilter(config_manager.get_ignore_patterns())
+
     # 2. Initialize State Manager
     try:
         state_manager = StateManager(state_path)
@@ -79,7 +83,7 @@ def main() -> None:
         sys.exit(1)
 
     # 4. Initialize Synchronization Engine
-    sync_engine = SyncEngine(config_manager, state_manager, drive_ops)
+    sync_engine = SyncEngine(config_manager, state_manager, drive_ops, path_filter)
 
     # 5. Setup Signal Handling for Graceful Shutdown
     def signal_handler(sig: int, frame: Any) -> None:

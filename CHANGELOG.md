@@ -2,8 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.2.1]
+
+### Added
+- **Temporary/Ignored File Filtering**: Implemented filtering logic to prevent tracking, uploading, or processing of temporary files (e.g., `.tmp`, `.part`, `~$*`) and other ignored patterns during both startup scans and real-time monitoring. This reduces API usage, bandwidth, and state clutter.
+
 
 ## [0.2.0]
 
