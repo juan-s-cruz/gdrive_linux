@@ -93,6 +93,78 @@ class StateManager:
                     del self.id_to_path[file_id]
                 self._save_state_unsafe()
 
+    def remove_path_recursive(self, relative_path: str) -> None:
+        """Removes a path and all its descendants from the state."""
+        with self.lock:
+            # Find all paths to remove (parent and children)
+            prefix = relative_path + os.sep
+            paths_to_remove = [
+                p
+                for p in self.state["files"]
+                if p == relative_path or p.startswith(prefix)
+            ]
+
+            for path in paths_to_remove:
+                if path in self.state["files"]:
+                    file_id = self.state["files"][path].get("id")
+                    del self.state["files"][path]
+                    if file_id and file_id in self.id_to_path:
+                        del self.id_to_path[file_id]
+
+            self._save_state_unsafe()
+
+    def move_path_recursive(
+        self,
+        old_rel_path: str,
+        new_rel_path: str,
+        file_id: str,
+        md5: Optional[str],
+        is_folder: bool,
+    ) -> None:
+        """
+        Moves a path and all its descendants in the state.
+
+        Args:
+            old_rel_path: The original relative path.
+            new_rel_path: The new relative path.
+            file_id: The file ID of the item being moved.
+            md5: The MD5 checksum of the item (if it's a file).
+            is_folder: True if the item is a folder.
+        """
+        with self.lock:
+            # Update the parent item itself
+            if old_rel_path in self.state["files"]:
+                del self.state["files"][old_rel_path]
+
+            self.state["files"][new_rel_path] = {"id": file_id, "md5": md5}
+            self.id_to_path[file_id] = new_rel_path
+
+            # If it's a folder, find all children and update their paths
+            if is_folder:
+                prefix = old_rel_path + os.sep
+                # Use list() to create a snapshot of items to avoid issues with
+                # modifying dict during iteration.
+                child_items = [
+                    (p, d)
+                    for p, d in self.state["files"].items()
+                    if p.startswith(prefix)
+                ]
+
+                for child_path, child_data in child_items:
+                    # Calculate the new path for the child
+                    new_child_path = new_rel_path + child_path[len(old_rel_path) :]
+
+                    # Move the child entry by deleting the old and adding the new
+                    del self.state["files"][child_path]
+                    self.state["files"][new_child_path] = child_data
+
+                    # Update the id_to_path mapping for the child
+                    child_id = child_data.get("id")
+                    if child_id:
+                        self.id_to_path[child_id] = new_child_path
+
+            self._save_state_unsafe()
+
     def get_all_files(self) -> Dict[str, Dict[str, str]]:
         """Returns a copy of the entire state."""
         with self.lock:
