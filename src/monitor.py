@@ -203,6 +203,18 @@ class LocalFileHandler(FileSystemEventHandler):
                 is_folder=event.is_directory,
             )
         else:
+            # Source not in state. This can happen if the parent directory was
+            # moved first, and its event was processed before this child event.
+            # In that case, the destination path will already be in the state.
+            dest_entry = self.state_manager.get_file(dest_rel_path)
+            if dest_entry:
+                logger.debug(
+                    f"Ignoring move for '{src_rel_path}': destination '{dest_rel_path}' already in state."
+                )
+                return
+
+            # If both source and destination are not in state, treat as a new file.
+            # This handles moving a file from an untracked location into the sync root.
             parent_id = self._resolve_parent_id(dest_rel_path)
             name = os.path.basename(dest_rel_path)
             mime_type, _ = mimetypes.guess_type(event.dest_path)
