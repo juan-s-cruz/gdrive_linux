@@ -27,6 +27,15 @@ class TestSyncEngine(unittest.TestCase):
         """Test that all paths are allowed when no selective sync rules exist."""
         self.mock_config_manager.get_selective_sync_folders.return_value = []
 
+        engine = SyncEngine(
+            self.mock_config_manager,
+            self.mock_state_manager,
+            self.mock_drive_ops,
+            self.mock_path_filter,
+        )
+        self.assertTrue(engine.is_path_allowed("any_folder"))
+        self.assertTrue(engine.is_path_allowed("some/nested/file.txt"))
+
     def tearDown(self):
         self.mock_monitor_patcher.stop()
 
