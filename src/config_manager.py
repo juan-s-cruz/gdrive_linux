@@ -52,6 +52,12 @@ class ConfigManager:
         # Restrict permissions to the owner to prevent local data leaks
         os.chmod(config["local_root_path"], 0o700)
 
+        # Ensure the loaded configuration is free of duplicates and redundant children
+        if "selective_sync_folders" in config:
+            config["selective_sync_folders"] = self._clean_folders(
+                config["selective_sync_folders"]
+            )
+
         return config
 
     def _save_config(self) -> None:
@@ -66,6 +72,23 @@ class ConfigManager:
             with os.fdopen(fd, "w") as f:
                 json.dump(self.config, f, indent=4)
 
+    @staticmethod
+    def _clean_folders(folders: List[str]) -> List[str]:
+        """
+        Removes exact duplicates and redundant child paths from a list of folders.
+        """
+        if not folders:
+            return []
+
+        # Sort paths so parents always precede their children
+        unique_folders = sorted(list(set(folders)))
+        cleaned = []
+        for folder in unique_folders:
+            # A folder is redundant if it is a child of any already processed (parent) folder
+            if not any(folder.startswith(parent + os.sep) for parent in cleaned):
+                cleaned.append(folder)
+        return cleaned
+
     def add_sync_folder(self, path: str) -> None:
         """
         Safely appends a new folder path to the selective sync configuration.
@@ -73,20 +96,16 @@ class ConfigManager:
         """
         should_save = False
         with self.lock:
-            folders = self.config.setdefault("selective_sync_folders", [])
+            folders = self.config.get("selective_sync_folders", [])
+            original_folders = list(folders)
 
-            if path in folders:
-                return
+            new_folders = list(folders)
+            new_folders.append(path)
+            cleaned = self._clean_folders(new_folders)
 
-            # Subset-filtering logic: if the new path falls within an already
-            # monitored parent path (e.g., 'Parent' is tracked and we are adding
-            # 'Parent/Child'), do not append it to prevent cluttering.
-            for folder in folders:
-                if path.startswith(folder + os.sep):
-                    return
-
-            folders.append(path)
-            should_save = True
+            if cleaned != original_folders:
+                self.config["selective_sync_folders"] = cleaned
+                should_save = True
 
         if should_save:
             self._save_config()
@@ -98,23 +117,24 @@ class ConfigManager:
         should_save = False
         with self.lock:
             folders = self.config.get("selective_sync_folders", [])
+            original_folders = list(folders)
             new_folders = []
             for folder in folders:
                 # Update exact matches
                 if folder == old_path:
                     new_folders.append(new_path)
-                    should_save = True
                 # Prefix replacement logic: Handle nested tracked folders
                 # (e.g., updating 'old_parent/child' to 'new_parent/child')
                 elif folder.startswith(old_path + os.sep):
                     updated_folder = new_path + folder[len(old_path) :]
                     new_folders.append(updated_folder)
-                    should_save = True
                 else:
                     new_folders.append(folder)
 
-            if should_save:
-                self.config["selective_sync_folders"] = new_folders
+            cleaned = self._clean_folders(new_folders)
+            if cleaned != original_folders:
+                self.config["selective_sync_folders"] = cleaned
+                should_save = True
 
         if should_save:
             self._save_config()

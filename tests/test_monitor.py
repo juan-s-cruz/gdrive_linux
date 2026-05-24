@@ -80,6 +80,9 @@ class TestLocalFileHandlerDirectoryEvents(unittest.TestCase):
             md5="folder",
             is_folder=True,
         )
+        self.mock_config_manager.rename_sync_folder.assert_called_once_with(
+            "old_folder", "new_folder"
+        )
 
     def test_on_created_existing_file_ignored(self):
         # Arrange
@@ -96,6 +99,28 @@ class TestLocalFileHandlerDirectoryEvents(unittest.TestCase):
 
         # Assert
         self.mock_drive_ops.upload_file.assert_not_called()
+
+    def test_on_created_new_directory(self):
+        # Arrange
+        dir_path = "/test/root/new_folder"
+        rel_path = "new_folder"
+        event = DirCreatedEvent(dir_path)
+
+        self.mock_state_manager.get_file.return_value = None
+        self.handler._resolve_parent_id = MagicMock(return_value="parent_id_123")
+        self.mock_drive_ops.create_folder.return_value = "new_folder_id"
+
+        # Act
+        self.handler.on_created(event)
+
+        # Assert
+        self.mock_drive_ops.create_folder.assert_called_once_with(
+            "new_folder", "parent_id_123"
+        )
+        self.mock_state_manager.set_file.assert_called_once_with(
+            rel_path, "new_folder_id", "folder"
+        )
+        self.mock_config_manager.add_sync_folder.assert_called_once_with(rel_path)
 
     def test_on_created_existing_directory_ignored(self):
         # Arrange
