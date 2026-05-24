@@ -105,6 +105,7 @@ class LocalFileHandler(FileSystemEventHandler):
             folder_id = self.drive_ops.create_folder(name, parent_id)
             if folder_id:
                 self.state_manager.set_file(rel_path, folder_id, "folder")
+            self.config_manager.add_sync_folder(rel_path)
             return
 
         logger.info(f"Event: Created File - {rel_path}")
@@ -209,6 +210,9 @@ class LocalFileHandler(FileSystemEventHandler):
                 md5=entry.get("md5"),
                 is_folder=event.is_directory,
             )
+
+            if event.is_directory:
+                self.config_manager.rename_sync_folder(src_rel_path, dest_rel_path)
         else:
             # Source not in state. This can happen if the parent directory was
             # moved first, and its event was processed before this child event.
