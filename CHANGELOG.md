@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2]
+
+### Added
+- **Local Directory Sync**: The client now correctly handles local directory moves, renames, and deletions, propagating these changes to Google Drive.
+
+### Fixed
+- Resolved an issue where local directory changes were ignored and reverted on the next down-sync cycle.
+- **Directory Move Duplication**: Fixed a bug where moving or renaming directories locally caused duplicate files to be created and uploaded.
+- **Startup Scan Upload Bug**: Resolved an issue during the initial startup scan where new local files were incorrectly uploaded to the Drive root directory with the filename "root", which also corrupted the local state ledger.
+
+### Internal
+- Refactored recursive state update logic for moves and deletions into `StateManager` to improve modularity and remove duplicate code.
+
 ## [0.2.1]
 
 ### Added

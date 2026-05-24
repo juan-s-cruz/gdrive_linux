@@ -90,6 +90,13 @@ class LocalFileHandler(FileSystemEventHandler):
             return
 
         rel_path = self._get_relative_path(event.src_path)
+
+        if self.state_manager.get_file(rel_path):
+            logger.debug(
+                f"Ignoring creation event for '{rel_path}': already tracked in state."
+            )
+            return
+
         parent_id = self._resolve_parent_id(rel_path)
         name = os.path.basename(rel_path)
 
@@ -182,14 +189,6 @@ class LocalFileHandler(FileSystemEventHandler):
         if event.src_path in self.ignored_paths or self._should_ignore(event.dest_path):
             return
 
-        if event.is_directory:
-            return
-
-        with self.timers_lock:
-            if event.src_path in self.timers:
-                self.timers[event.src_path].cancel()
-                del self.timers[event.src_path]
-
         src_rel_path = self._get_relative_path(event.src_path)
         dest_rel_path = self._get_relative_path(event.dest_path)
         logger.info(f"Event: Moved - {src_rel_path} to {dest_rel_path}")
@@ -202,11 +201,27 @@ class LocalFileHandler(FileSystemEventHandler):
 
             self.drive_ops.move_file(file_id, new_name, new_parent_id)
 
-            # Update state: remove old path, add new path
-            self.state_manager.remove_file(src_rel_path)
-            self.state_manager.set_file(dest_rel_path, file_id, entry["md5"])
+            # Use the new centralized method for recursive state updates
+            self.state_manager.move_path_recursive(
+                old_rel_path=src_rel_path,
+                new_rel_path=dest_rel_path,
+                file_id=file_id,
+                md5=entry.get("md5"),
+                is_folder=event.is_directory,
+            )
         else:
-            # Source not in state (e.g. was ignored temp file), treat as new upload
+            # Source not in state. This can happen if the parent directory was
+            # moved first, and its event was processed before this child event.
+            # In that case, the destination path will already be in the state.
+            dest_entry = self.state_manager.get_file(dest_rel_path)
+            if dest_entry:
+                logger.debug(
+                    f"Ignoring move for '{src_rel_path}': destination '{dest_rel_path}' already in state."
+                )
+                return
+
+            # If both source and destination are not in state, treat as a new file.
+            # This handles moving a file from an untracked location into the sync root.
             parent_id = self._resolve_parent_id(dest_rel_path)
             name = os.path.basename(dest_rel_path)
             mime_type, _ = mimetypes.guess_type(event.dest_path)
@@ -228,21 +243,19 @@ class LocalFileHandler(FileSystemEventHandler):
         if self._should_ignore(event.src_path):
             return
 
-        if event.is_directory:
-            return
-
         with self.timers_lock:
             if event.src_path in self.timers:
                 self.timers[event.src_path].cancel()
                 del self.timers[event.src_path]
 
         rel_path = self._get_relative_path(event.src_path)
-        logger.info(f"Event: Deleted - {rel_path}")
+        log_msg = "Folder" if event.is_directory else "File"
+        logger.info(f"Event: Deleted {log_msg} - {rel_path}")
 
         entry = self.state_manager.get_file(rel_path)
         if entry:
             self.drive_ops.delete_file(entry["id"])
-            self.state_manager.remove_file(rel_path)
+            self.state_manager.remove_path_recursive(rel_path)
 
     def stop(self) -> None:
         """Cancels all pending debounce timers."""

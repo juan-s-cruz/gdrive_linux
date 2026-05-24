@@ -8,10 +8,11 @@ We utilize **Python** to build a **continuously running daemon**. This backgroun
 ## Functionality
 
 *   **Two-way Sync**: Keeps local and remote folders identical.
-*   **Uploads**: Automatically uploads files created or modified locally.
-*   **Downloads**: Fetches new or updated files from Google Drive.
+*   **Local Change Handling**: Propagates local creations, modifications, moves, and deletions of files and directories to Google Drive.
+*   **Downloads**: Fetches remote creations, updates, and moves from Google Drive.
 *   **Authentication**: Secure access using Google OAuth2.
 *   **Selective Sync**: Ability to specify which remote folders should be synced locally, ignoring others.
+*   **File Filtering**: Automatically ignores temporary files, system files, and Google Workspace documents, with configurable ignore patterns.
 *   **Delta Syncing**: Efficient remote polling using the Google Drive Changes API to minimize network usage.
 *   **Offline Reconciliation**: Automatically detects and resolves local changes made while the daemon was offline during startup.
 
@@ -50,7 +51,8 @@ The application stores configuration and credentials in `~/.gdrive_client`.
     ```json
     {
         "local_root_path": "~/GoogleDrive",
-        "selective_sync_folders": []
+        "selective_sync_folders": [],
+        "ignore_patterns": ["*.tmp", "*.part", "*.swp", ".*.swp", "~$*", ".DS_Store", "Thumbs.db", "*.crdownload"]
     }
     ```
 

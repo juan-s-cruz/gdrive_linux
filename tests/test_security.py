@@ -11,6 +11,7 @@ from src.sync_engine import SyncEngine
 from src.drive_ops import DriveOps
 from src.monitor import LocalFileHandler
 from src.config_manager import ConfigManager
+from src.filtering import PathFilter
 from src.auth import authenticate
 
 
@@ -35,12 +36,21 @@ def mock_drive_ops():
     return MagicMock(spec=DriveOps)
 
 
+@pytest.fixture
+def mock_path_filter():
+    pf = MagicMock()
+    pf.should_ignore.return_value = False
+    return pf
+
+
 def test_sync_engine_path_traversal_sanitization(
-    mock_config_manager, mock_state_manager, mock_drive_ops
+    mock_config_manager, mock_state_manager, mock_drive_ops, mock_path_filter
 ):
     """Verify that remote filenames are sanitized to prevent path traversal."""
     # Arrange
-    sync_engine = SyncEngine(mock_config_manager, mock_state_manager, mock_drive_ops)
+    sync_engine = SyncEngine(
+        mock_config_manager, mock_state_manager, mock_drive_ops, mock_path_filter
+    )
 
     malicious_filename = "../../.bashrc"
     sanitized_filename = ".._.._.bashrc"
@@ -118,21 +128,31 @@ def test_monitor_ignores_symlinks_on_upload(
 ):
     """Verify that the local monitor ignores symlinks to prevent data leaks."""
     # Arrange
-    handler = LocalFileHandler(mock_config_manager, mock_state_manager, mock_drive_ops)
+    # We need to ensure the PathFilter's internal logic for symlinks is tested.
+    # So, we create a real PathFilter instance and mock its internal os.path calls.
+    real_path_filter = PathFilter(ignore_patterns=[])
 
-    # Path to a symlink within the monitored directory
-    symlink_path = os.path.join(mock_config_manager.get_local_root(), "my_symlink")
+    with patch(
+        "src.filtering.os.path.lexists", return_value=True
+    ) as mock_lexists, patch(
+        "src.filtering.os.path.islink", return_value=True
+    ) as mock_islink:
 
-    # Create a mock creation event for the symlink
-    event = FileCreatedEvent(src_path=symlink_path)
+        handler = LocalFileHandler(
+            mock_config_manager, mock_state_manager, mock_drive_ops, real_path_filter
+        )
 
-    # Patch os.path.islink to simulate that the path is a symlink
-    with patch("os.path.islink", return_value=True) as mock_islink:
+        symlink_path = os.path.join(mock_config_manager.get_local_root(), "my_symlink")
+        event = FileCreatedEvent(src_path=symlink_path)
+
         # Act
         handler.on_created(event)
 
         # Assert
-        mock_islink.assert_called_once_with(symlink_path)
+        mock_lexists.assert_called_once_with(symlink_path)
+        mock_islink.assert_called_once_with(
+            symlink_path
+        )  # This is now correctly asserted
         # The core assertion: no upload operation should have been started
         mock_drive_ops.upload_file.assert_not_called()
 
