@@ -90,6 +90,13 @@ class LocalFileHandler(FileSystemEventHandler):
             return
 
         rel_path = self._get_relative_path(event.src_path)
+
+        if self.state_manager.get_file(rel_path):
+            logger.debug(
+                f"Ignoring creation event for '{rel_path}': already tracked in state."
+            )
+            return
+
         parent_id = self._resolve_parent_id(rel_path)
         name = os.path.basename(rel_path)
 
