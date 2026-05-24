@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 from typing import List, Dict, Any
 
 
@@ -16,6 +17,7 @@ class ConfigManager:
             config_path (str): Path to the configuration JSON file.
         """
         self.config_path = config_path
+        self.lock = threading.Lock()
         self.config = self._load_config()
 
     def _load_config(self) -> Dict[str, Any]:
@@ -52,32 +54,47 @@ class ConfigManager:
 
         return config
 
+    def _save_config(self) -> None:
+        """
+        Writes the current configuration dictionary back to the JSON file securely.
+        Maintains 0o600 restricted permissions. Protected by the instance lock.
+        """
+        with self.lock:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+            mode = 0o600
+            fd = os.open(self.config_path, flags, mode)
+            with os.fdopen(fd, "w") as f:
+                json.dump(self.config, f, indent=4)
+
     def get_local_root(self) -> str:
         """Returns the absolute path to the local root directory."""
-        return self.config["local_root_path"]
+        with self.lock:
+            return self.config["local_root_path"]
 
     def get_selective_sync_folders(self) -> List[str]:
         """Returns the list of folders enabled for selective sync."""
-        return self.config.get("selective_sync_folders", [])
+        with self.lock:
+            return self.config.get("selective_sync_folders", [])
 
     def get_ignore_patterns(self) -> List[str]:
         """
         Returns the list of file patterns to ignore.
         Provides a default list of common temporary/system files if not specified.
         """
-        return self.config.get(
-            "ignore_patterns",
-            [
-                "*.tmp",
-                "*.part",
-                "*.swp",
-                ".*.swp",
-                "~$*",
-                ".DS_Store",
-                "Thumbs.db",
-                "*.crdownload",
-            ],
-        )
+        with self.lock:
+            return self.config.get(
+                "ignore_patterns",
+                [
+                    "*.tmp",
+                    "*.part",
+                    "*.swp",
+                    ".*.swp",
+                    "~$*",
+                    ".DS_Store",
+                    "Thumbs.db",
+                    "*.crdownload",
+                ],
+            )
 
 
 if __name__ == "__main__":
