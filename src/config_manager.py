@@ -66,6 +66,59 @@ class ConfigManager:
             with os.fdopen(fd, "w") as f:
                 json.dump(self.config, f, indent=4)
 
+    def add_sync_folder(self, path: str) -> None:
+        """
+        Safely appends a new folder path to the selective sync configuration.
+        Uses subset-filtering to prevent cluttering the config file with redundant paths.
+        """
+        should_save = False
+        with self.lock:
+            folders = self.config.setdefault("selective_sync_folders", [])
+
+            if path in folders:
+                return
+
+            # Subset-filtering logic: if the new path falls within an already
+            # monitored parent path (e.g., 'Parent' is tracked and we are adding
+            # 'Parent/Child'), do not append it to prevent cluttering.
+            for folder in folders:
+                if path.startswith(folder + os.sep):
+                    return
+
+            folders.append(path)
+            should_save = True
+
+        if should_save:
+            self._save_config()
+
+    def rename_sync_folder(self, old_path: str, new_path: str) -> None:
+        """
+        Updates the tracked paths in the selective sync configuration when a directory is renamed locally.
+        """
+        should_save = False
+        with self.lock:
+            folders = self.config.get("selective_sync_folders", [])
+            new_folders = []
+            for folder in folders:
+                # Update exact matches
+                if folder == old_path:
+                    new_folders.append(new_path)
+                    should_save = True
+                # Prefix replacement logic: Handle nested tracked folders
+                # (e.g., updating 'old_parent/child' to 'new_parent/child')
+                elif folder.startswith(old_path + os.sep):
+                    updated_folder = new_path + folder[len(old_path) :]
+                    new_folders.append(updated_folder)
+                    should_save = True
+                else:
+                    new_folders.append(folder)
+
+            if should_save:
+                self.config["selective_sync_folders"] = new_folders
+
+        if should_save:
+            self._save_config()
+
     def get_local_root(self) -> str:
         """Returns the absolute path to the local root directory."""
         with self.lock:
